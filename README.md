@@ -9,6 +9,8 @@ Features:
 - **Multi-bulb**: pairs and controls several bulbs, each with its own card
   in the web page (rename, remove, per-bulb state);
 - on/off, brightness, white temperature (2200–4000 K) and RGB color per bulb;
+- **named scenes**: capture the current state of every bulb under a name
+  and recall it later (persisted in NVS);
 - light state (power, brightness, white tone or color) restored after a
   reboot or power cut, then reconciled with what the bulbs actually report;
 - automatic pairing while no bulb is bound, or on demand from the UI;
@@ -17,8 +19,7 @@ Features:
 - configurable mDNS hostname, so several controllers can share one network;
 - status LED (Wi-Fi / Zigbee / pairing / ready) and a serial console.
 
-Planned for a later phase: named scenes. Deliberately out of scope: alarms
-and wake-light scheduling.
+Deliberately out of scope: alarms and wake-light scheduling.
 
 ## Hardware
 
@@ -89,6 +90,11 @@ address in hex (stable across reboots).
 | POST   | `/api/pairing`      | `{"seconds":180}` opens the network |
 | GET    | `/api/status`       | version, uptime, IP, RSSI, heap, bulb count |
 | POST   | `/api/hostname`     | `{"hostname":"my-light"}` (a-z, 0-9, `-`) |
+| GET    | `/api/scenes`       | list of saved scenes |
+| POST   | `/api/scenes`       | `{"name":"relax"}` captures every bulb's current state |
+| PATCH  | `/api/scenes/{name}`| re-captures (updates) an existing scene |
+| POST   | `/api/scenes/{name}/recall` | applies the stored states |
+| DELETE | `/api/scenes/{name}` | forgets a scene |
 
 Examples:
 
@@ -102,6 +108,11 @@ curl -X PATCH http://bulb.local/api/lights/a4c138d0e0b12c34 \
 ```
 
 Errors are always `{"error":"..."}` with a 4xx status.
+
+Scene names are restricted to lowercase letters, digits, `-` and `_`
+(max 20 characters) because they appear in URL paths. Recalling a scene
+skips bulbs that are offline or were not part of the scene (e.g. paired
+after it was captured).
 
 ## Serial console
 
