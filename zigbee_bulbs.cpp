@@ -39,11 +39,6 @@ bool readbackPending = false;
 size_t readbackIndex = 0;
 uint32_t lastReadbackMs = 0;
 
-bool bulbReady(const Bulb *bulb) {
-  return bulb != nullptr && bulb->online && bulb->shortAddr != 0xFFFF &&
-         bulb->endpoint != 0;
-}
-
 uint16_t kelvinToMireds(int kelvin) {
   if (kelvin < MIN_KELVIN) kelvin = MIN_KELVIN;
   if (kelvin > MAX_KELVIN) kelvin = MAX_KELVIN;
@@ -57,6 +52,15 @@ uint16_t clampTransition(uint16_t transitionDs) {
 
 Bulb *bulbByIeeeFromResponse(const esp_zb_ieee_addr_t ieee) {
   return registryFindByIeee(ieee);
+}
+
+// Re-arms the boot state resend (idempotent): used when a bulb becomes
+// addressable late, after the first pass already skipped it.
+void armBootResend() {
+  if (!resendPending) {
+    resendPending = true;
+    resendIndex = 0;
+  }
 }
 
 void noteShortSource(uint16_t shortAddr) {
@@ -220,6 +224,10 @@ void syncRegistryWithBindings() {
 }
 
 // --- ZDO address resolution ---------------------------------------------------
+//
+// ZDO requests enqueue into the ZBOSS scheduler and must run while holding
+// the Zigbee lock, otherwise they race with the stack task (observed as a
+// vPortExitCritical assert).
 
 void resolveNextBulbShortAddress() {
   if (registryCount() == 0) return;
@@ -228,21 +236,31 @@ void resolveNextBulbShortAddress() {
     resolveIndex = (resolveIndex + 1) % registryCount();
     if (b != nullptr && b->shortAddr == 0xFFFF) {
       esp_zb_zdo_nwk_addr_req_param_t req = {};  // Copied synchronously.
-      req.dst_nwk_addr = 0x0000;                 // Ask the coordinator (ourselves).
+      // Broadcast to all routers: the coordinator's own address map lookup
+      // does not return joined routers, but the device answers for itself.
+      req.dst_nwk_addr = 0xFFFC;
       memcpy(req.ieee_addr_of_interest, b->ieee, sizeof(esp_zb_ieee_addr_t));
       req.request_type = 0;  // Single device response.
       req.start_index = 0;
+      if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+      Serial.printf("Zigbee: resolving short address for %s...\n", b->name);
       esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
                                        esp_zb_zdo_nwk_addr_rsp_t *resp, void *) {
-        if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+        if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) {
+          Serial.printf("Zigbee: short address resolve failed (status %d)\n",
+                        (int)status);
+          return;
+        }
         Bulb *found = bulbByIeeeFromResponse(resp->ieee_addr);
         if (found != nullptr && resp->nwk_addr != 0xFFFF &&
             found->shortAddr != resp->nwk_addr) {
           found->shortAddr = resp->nwk_addr;
           Serial.printf("Zigbee: %s short address 0x%04x\n", found->name,
                         resp->nwk_addr);
+          armBootResend();
         }
       }, nullptr);
+      esp_zb_lock_release();
       return;
     }
   }
@@ -257,25 +275,37 @@ void resolveNextUnknownSource() {
   --pendingSourceCount;
 
   esp_zb_zdo_ieee_addr_req_param_t req = {};  // Copied synchronously.
-  req.dst_nwk_addr = 0x0000;
+  req.dst_nwk_addr = 0xFFFC;  // Broadcast: the device answers for itself.
   req.addr_of_interest = shortAddr;
   req.request_type = 0;
   req.start_index = 0;
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  Serial.printf("Zigbee: resolving IEEE for source 0x%04x...\n", shortAddr);
   esp_zb_zdo_ieee_addr_req(&req, [](esp_zb_zdp_status_t status,
                                     esp_zb_zdo_ieee_addr_rsp_t *resp, void *) {
-    if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+    if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) {
+      Serial.printf("Zigbee: IEEE resolve failed (status %d)\n", (int)status);
+      return;
+    }
     Bulb *found = bulbByIeeeFromResponse(resp->ieee_addr);
     if (found != nullptr) {
       if (found->shortAddr != resp->nwk_addr) {
         found->shortAddr = resp->nwk_addr;
         Serial.printf("Zigbee: %s remapped to 0x%04x\n", found->name,
                       resp->nwk_addr);
+        armBootResend();
       }
     }
   }, nullptr);
+  esp_zb_lock_release();
 }
 
 // --- Unbind (device removal) --------------------------------------------------
+
+void unbindResponseStub(esp_zb_zdp_status_t, void *) {
+  // Unbind responses are fire-and-forget; the follow-up binding-table sync
+  // confirms the removal.
+}
 
 void sendUnbindForCluster(const Bulb *bulb, uint16_t clusterId) {
   esp_zb_zdo_bind_req_param_t req = {};  // Copied synchronously.
@@ -286,12 +316,19 @@ void sendUnbindForCluster(const Bulb *bulb, uint16_t clusterId) {
   memcpy(req.dst_address_u.addr_long, bulb->ieee, sizeof(esp_zb_ieee_addr_t));
   req.dst_endp = bulb->endpoint != 0 ? bulb->endpoint : 1;  // Common bulb EP.
   req.req_dst_addr = esp_zb_get_short_address();
-  esp_zb_zdo_device_unbind_req(&req, nullptr, nullptr);
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  esp_zb_zdo_device_unbind_req(&req, unbindResponseStub, nullptr);
+  esp_zb_lock_release();
 }
 
 }  // namespace
 
 // --- Public API ----------------------------------------------------------------
+
+bool bulbReady(const Bulb *bulb) {
+  return bulb != nullptr && bulb->online && bulb->shortAddr != 0xFFFF &&
+         bulb->endpoint != 0;
+}
 
 void zigbeeBegin() {
   bulbEP.setManufacturerAndModel("MattiaPell", "esp32-zigbee-bulb");
