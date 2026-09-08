@@ -141,6 +141,7 @@ Bulb *bulbByApiId(const String &id) {
 }
 
 void handleLightPatch(const String &id) {
+  Serial.printf("PATCH %s <- %s\n", id.c_str(), server.arg("plain").c_str());
   Bulb *b = bulbByApiId(id);
   if (b == nullptr) {
     sendJsonError(404, "unknown light id");
