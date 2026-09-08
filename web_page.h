@@ -343,10 +343,18 @@ function countdown(s){
 }
 
 $('setBtn').onclick=async()=>{
- const s=await api('/api/status');
+ const [s, devs] = await Promise.all([api('/api/status'), api('/api/devices').catch(()=>[])]);
+ let devRows='';
+ for(const d of devs){
+  if(!d.ieee)continue;
+  const tipo=d.name?'lampadina registrata':d.type==='router'?'lampadina (alimentata)':d.type==='end-device'?'dispositivo a batteria (pulsante/telecomando)':d.type==='bound'?'dispositivo agganciato':'controller';
+  const nome=d.name?`<b>${esc(d.name)}</b>`:`Dispositivo ${d.short}`;
+  devRows+=`<div>• ${nome} &nbsp;<span class="kv">${tipo} · ${d.short} · ${d.ieee.slice(0,8)}…</span></div>`;
+ }
  openDialog('Impostazioni',
   `<label>Hostname mDNS</label><input type="text" id="hostIn" maxlength="31" value="${esc(s.hostname)}" pattern="[a-z0-9-]+">
-   <div class="kv">Indirizzo: ${s.ip}<br>Rete: accedi a http://${s.hostname}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}</div>`,
+   <div class="kv">Indirizzo: ${s.ip}<br>Rete: accedi a http://${s.hostname}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}</div>
+   <div class="kv" style="margin-top:8px"><b>Dispositivi nella rete Zigbee:</b><br>${devRows||'(elenco in aggiornamento, riprova tra 30 s)'}</div>`,
   async()=>{
    const v=$('hostIn').value.trim().toLowerCase();
    if(v&&v!==s.hostname){await api('/api/hostname',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hostname:v})});toast('Hostname: '+v+'.local')}

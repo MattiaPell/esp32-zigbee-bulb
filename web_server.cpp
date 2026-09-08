@@ -256,8 +256,46 @@ void handlePairingGet() {
                     ",\"seconds\":" + PAIRING_SECONDS + "}");
 }
 
-void handleStatusGet() {
-  String j;
+// --- Devices (read-only network diagnostics) ----------------------------------
+
+void handleDevicesGet() {
+  DeviceInfo devs[24];
+  const size_t a = zigbeeMemberSnapshot(devs, 12);
+  const size_t b = zigbeeBoundSnapshot(devs + a, 24 - a);
+  const size_t n = a + b;
+  String j = "[";
+  for (size_t i = 0; i < n; ++i) {
+    // Deduplicate: a bound device may also appear in the neighbor table.
+    bool dup = false;
+    for (size_t p = 0; p < i; ++p) {
+      if (memcmp(devs[p].ieee, devs[i].ieee, sizeof(esp_zb_ieee_addr_t)) == 0) {
+        dup = true;
+        break;
+      }
+    }
+    if (dup) continue;
+    if (j.length() > 1) j += ",";
+    j += "{\"ieee\":\"";
+    Bulb fake;  // Reuse the shared hex formatter.
+    memcpy(fake.ieee, devs[i].ieee, sizeof(esp_zb_ieee_addr_t));
+    j += bulbIeeeHex(&fake);
+    j += "\",\"short\":\"0x";
+    j += String(devs[i].shortAddr, HEX);
+    j += "\",\"type\":\"";
+    if (devs[i].deviceType == 0) j += "coordinator";
+    else if (devs[i].deviceType == 1) j += "router";
+    else if (devs[i].deviceType == 2) j += "end-device";
+    else j += "bound";
+    j += "\",\"name\":\"";
+    Bulb *b2 = registryFindByIeee(devs[i].ieee);
+    j += b2 != nullptr ? b2->name : "";
+    j += "\"}";
+  }
+  j += "]";
+  sendJson(200, j);
+}
+
+void handleStatusGet() {  String j;
   j.reserve(300);
   j += "{\"version\":\"";
   j += FW_VERSION;
@@ -518,6 +556,10 @@ void dispatch() {
   }
   if (uri == "/api/status" && method == HTTP_GET) {
     handleStatusGet();
+    return;
+  }
+  if (uri == "/api/devices" && method == HTTP_GET) {
+    handleDevicesGet();
     return;
   }
   if (uri == "/api/hostname" && method == HTTP_POST) {

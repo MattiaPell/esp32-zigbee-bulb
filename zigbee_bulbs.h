@@ -37,6 +37,24 @@ size_t zigbeeBoundDeviceCount();
 // True when the bulb is bound, addressable and able to receive commands.
 bool bulbReady(const Bulb *bulb);
 
+// --- Network members (diagnostics, read-only) -------------------------------
+
+struct DeviceInfo {
+  esp_zb_ieee_addr_t ieee = {0};
+  uint16_t shortAddr = 0;
+  uint8_t deviceType = 0;  // 0 coordinator, 1 router, 2 end device
+};
+
+// Refreshes the cached snapshot of Zigbee network members (neighbor table).
+void zigbeeRequestMembers();
+
+// Copies the last known snapshot; returns how many entries were written.
+size_t zigbeeMemberSnapshot(DeviceInfo *out, size_t cap);
+
+// Copies the bound devices list (grouped with the neighbor snapshot to
+// include battery devices that leave the neighbor table while asleep).
+size_t zigbeeBoundSnapshot(DeviceInfo *out, size_t cap);
+
 // ZDO-unbinds the bulb (all clusters), drops it from the endpoint and the
 // registry. Bulbs that are unreachable may re-appear on the next sync.
 void zigbeeRemoveDevice(Bulb *bulb);

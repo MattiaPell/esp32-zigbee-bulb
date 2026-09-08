@@ -144,6 +144,13 @@ void verifyTick(uint32_t now) {
     esp_zb_zdo_simple_desc_req_param_t req = {};
     req.addr_of_interest = job.shortAddr;
     req.endpoint = job.endpoint;
+    if (++job.attempts > VERIFY_MAX_ATTEMPTS) {
+      // Unreachable (likely a sleeping battery device): give up for now,
+      // the next binding sync will re-queue it.
+      job.used = false;
+      Serial.println("Zigbee: verify gave up (no descriptor response)");
+      return;
+    }
     if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
     esp_zb_zdo_simple_desc_req(&req, [](esp_zb_zdp_status_t status,
                                         esp_zb_af_simple_desc_1_1_t *desc, void *) {
@@ -199,6 +206,18 @@ uint32_t lastResendMs = 0;
 constexpr uint32_t READBACK_INTERVAL_MS = 8000;
 size_t readbackIndex = 0;
 uint32_t lastReadbackMs = 0;
+
+// --- Network members snapshot ------------------------------------------------
+//
+// Direct iteration over the Zigbee NWK neighbor table (synchronous, works
+// for sleepy children too, and exposes the relationship so the remote shows
+// up as our child, not just active routers).
+
+constexpr size_t MEMBER_CAP = 12;
+constexpr uint32_t MEMBER_REFRESH_MS = 20000;
+DeviceInfo members[MEMBER_CAP];
+size_t memberCount = 0;
+uint32_t lastMembersMs = 0;
 
 uint16_t kelvinToMireds(int kelvin) {
   if (kelvin < MIN_KELVIN) kelvin = MIN_KELVIN;
@@ -607,6 +626,12 @@ void zigbeeTick() {
   // Verify newly-bound devices (bulb vs remote/steering device).
   verifyTick(now);
 
+  // Network member snapshot refresh.
+  if (now - lastMembersMs >= MEMBER_REFRESH_MS) {
+    lastMembersMs = now;
+    zigbeeRequestMembers();
+  }
+
   // Boot state resend: one bulb per pass.
   if (resendPending && now - lastResendMs >= 400) {
     lastResendMs = now;
@@ -692,6 +717,47 @@ void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitio
   bulb->state.green = g;
   bulb->state.blue = b;
   registryMarkDirty();
+}
+
+void zigbeeRequestMembers() {
+  if (!Zigbee.started() || !Zigbee.connected()) return;
+  size_t n = 0;
+  esp_zb_nwk_info_iterator_t it = ESP_ZB_NWK_INFO_ITERATOR_INIT;
+  esp_zb_nwk_neighbor_info_t info;
+  while (n < MEMBER_CAP) {
+    esp_err_t err = esp_zb_nwk_get_next_neighbor(&it, &info);
+    if (err != ESP_OK) {
+      if (n == 0) {
+        Serial.printf("Neighbor table read: err=%d (table empty or not supported)\n", err);
+      }
+      break;
+    }
+    members[n].deviceType = info.device_type;
+    members[n].shortAddr = info.short_addr;
+    memcpy(members[n].ieee, info.ieee_addr, sizeof(esp_zb_ieee_addr_t));
+    ++n;
+  }
+  memberCount = n;
+  Serial.printf("Network members refreshed: %u\n", (unsigned)n);
+}
+
+size_t zigbeeMemberSnapshot(DeviceInfo *out, size_t cap) {
+  size_t n = memberCount < cap ? memberCount : cap;
+  for (size_t i = 0; i < n; ++i) out[i] = members[i];
+  return n;
+}
+
+size_t zigbeeBoundSnapshot(DeviceInfo *out, size_t cap) {
+  std::list<zb_device_params_t *> bound = bulbEP.getBoundDevices();
+  size_t n = 0;
+  for (zb_device_params_t *d : bound) {
+    if (n >= cap) break;
+    memcpy(out[n].ieee, d->ieee_addr, sizeof(esp_zb_ieee_addr_t));
+    out[n].shortAddr = d->short_addr;
+    out[n].deviceType = 255;  // "bound device" marker (type unknown here).
+    ++n;
+  }
+  return n;
 }
 
 void bulbSendAllOn() {
