@@ -1,0 +1,521 @@
+#include "zigbee_bulbs.h"
+
+#include <Zigbee.h>
+
+#include "esp_coexist.h"
+
+#include "bulb_registry.h"
+#include "config.h"
+#include "status_led.h"
+
+namespace {
+
+// One controller endpoint bound to every bulb on the network.
+ZigbeeColorDimmerSwitch bulbEP(BULB_ENDPOINT);
+
+// --- Sync / resolution state ------------------------------------------------
+
+uint32_t lastSyncMs = 0;
+bool pairingOpenAtBootDone = false;
+uint32_t pairingOpenedAtMs = 0;
+uint8_t pairingSeconds = PAIRING_SECONDS;
+// ZDO NWK-address resolution (IEEE -> short), one bulb at a time.
+size_t resolveIndex = 0;
+uint32_t lastResolveMs = 0;
+
+// Unknown short sources seen in reports (short -> IEEE resolution queue).
+constexpr size_t MAX_PENDING_SOURCES = 4;
+uint16_t pendingSources[MAX_PENDING_SOURCES];
+size_t pendingSourceCount = 0;
+uint32_t lastSourceResolveMs = 0;
+
+// Boot state resend queue: one bulb per pass.
+bool resendPending = false;
+size_t resendIndex = 0;
+uint32_t lastResendMs = 0;
+
+// Readback queue: staggered attribute reads after boot.
+bool readbackPending = false;
+size_t readbackIndex = 0;
+uint32_t lastReadbackMs = 0;
+
+bool bulbReady(const Bulb *bulb) {
+  return bulb != nullptr && bulb->online && bulb->shortAddr != 0xFFFF &&
+         bulb->endpoint != 0;
+}
+
+uint16_t kelvinToMireds(int kelvin) {
+  if (kelvin < MIN_KELVIN) kelvin = MIN_KELVIN;
+  if (kelvin > MAX_KELVIN) kelvin = MAX_KELVIN;
+  return (uint16_t)(1000000UL / (uint32_t)kelvin);
+}
+
+uint16_t clampTransition(uint16_t transitionDs) {
+  if (transitionDs > MAX_TRANSITION_DS) return MAX_TRANSITION_DS;
+  return transitionDs;
+}
+
+Bulb *bulbByIeeeFromResponse(const esp_zb_ieee_addr_t ieee) {
+  return registryFindByIeee(ieee);
+}
+
+void noteShortSource(uint16_t shortAddr) {
+  for (size_t i = 0; i < registryCount(); ++i) {
+    if (registryGet(i)->shortAddr == shortAddr) return;  // Already known.
+  }
+  for (size_t i = 0; i < pendingSourceCount; ++i) {
+    if (pendingSources[i] == shortAddr) return;
+  }
+  if (pendingSourceCount < MAX_PENDING_SOURCES) {
+    pendingSources[pendingSourceCount++] = shortAddr;
+  }
+}
+
+// --- Report callbacks (ZCL attribute updates from the bulbs) ----------------
+
+Bulb *bulbFromSource(uint8_t srcEndpoint, const esp_zb_zcl_addr_t &source) {
+  if (source.addr_type == ESP_ZB_ZCL_ADDR_TYPE_IEEE) {
+    return registryFindByIeee(source.u.ieee_addr);
+  }
+  if (source.addr_type != ESP_ZB_ZCL_ADDR_TYPE_SHORT) return nullptr;
+
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (b->shortAddr == source.u.short_addr && b->endpoint == srcEndpoint) {
+      return b;
+    }
+  }
+  // Unknown short address: queue an IEEE lookup so future reports match.
+  noteShortSource(source.u.short_addr);
+  return nullptr;
+}
+
+void onBulbStateReport(bool on, uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
+  Bulb *b = bulbFromSource(srcEndpoint, source);
+  if (b == nullptr) return;
+  if (!b->online) b->online = true;
+  if (b->state.power != on) {
+    b->state.power = on;
+    registryMarkDirty();
+  }
+}
+
+void onBulbLevelReport(uint8_t level, uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
+  Bulb *b = bulbFromSource(srcEndpoint, source);
+  if (b == nullptr) return;
+  if (!b->online) b->online = true;
+  if (b->state.level != level) {
+    b->state.level = level;
+    registryMarkDirty();
+  }
+}
+
+void onBulbColorReport(uint8_t red, uint8_t green, uint8_t blue,
+                       uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
+  Bulb *b = bulbFromSource(srcEndpoint, source);
+  if (b == nullptr) return;
+  if (!b->online) b->online = true;
+  // Store the color but do not switch the mode: a warm-white bulb reports
+  // its own XY point, which is not an RGB command.
+  if (b->state.red != red || b->state.green != green || b->state.blue != blue) {
+    b->state.red = red;
+    b->state.green = green;
+    b->state.blue = blue;
+    registryMarkDirty();
+  }
+}
+
+// --- Raw ZCL commands (per-bulb unicast) ------------------------------------
+//
+// The library class covers on/off with per-device overloads; level, color
+// temperature and color XY need transitions, so they are sent directly.
+// Addressing: short address + endpoint present (16-bit unicast).
+
+bool sendRawCommand(void (*request)(void *), void *cmd) {
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return false;
+  request(cmd);
+  esp_zb_lock_release();
+  return true;
+}
+
+void sendMoveToLevelWithOnOff(Bulb *bulb, uint8_t level, uint16_t transitionDs) {
+  esp_zb_zcl_move_to_level_cmd_t cmd = {};
+  cmd.zcl_basic_cmd.src_endpoint = BULB_ENDPOINT;
+  cmd.zcl_basic_cmd.dst_endpoint = bulb->endpoint;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = bulb->shortAddr;
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.level = level;
+  cmd.transition_time = transitionDs;
+  sendRawCommand([](void *p) {
+    esp_zb_zcl_level_move_to_level_with_onoff_cmd_req(
+        (esp_zb_zcl_move_to_level_cmd_t *)p);
+  }, &cmd);
+}
+
+void sendMoveToColorTemperature(Bulb *bulb, uint16_t mireds, uint16_t transitionDs) {
+  esp_zb_zcl_color_move_to_color_temperature_cmd_t cmd = {};
+  cmd.zcl_basic_cmd.src_endpoint = BULB_ENDPOINT;
+  cmd.zcl_basic_cmd.dst_endpoint = bulb->endpoint;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = bulb->shortAddr;
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.color_temperature = mireds;
+  cmd.transition_time = transitionDs;
+  sendRawCommand([](void *p) {
+    esp_zb_zcl_color_move_to_color_temperature_cmd_req(
+        (esp_zb_zcl_color_move_to_color_temperature_cmd_t *)p);
+  }, &cmd);
+}
+
+void sendMoveToColor(Bulb *bulb, uint16_t x, uint16_t y, uint16_t transitionDs) {
+  esp_zb_zcl_color_move_to_color_cmd_t cmd = {};
+  cmd.zcl_basic_cmd.src_endpoint = BULB_ENDPOINT;
+  cmd.zcl_basic_cmd.dst_endpoint = bulb->endpoint;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = bulb->shortAddr;
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.color_x = x;
+  cmd.color_y = y;
+  cmd.transition_time = transitionDs;
+  sendRawCommand([](void *p) {
+    esp_zb_zcl_color_move_to_color_cmd_req((esp_zb_zcl_color_move_to_color_cmd_t *)p);
+  }, &cmd);
+}
+
+// --- Binding table reconciliation -------------------------------------------
+
+void syncRegistryWithBindings() {
+  std::list<zb_device_params_t *> bound = bulbEP.getBoundDevices();
+
+  bool seen[MAX_BULBS] = {false};
+
+  for (zb_device_params_t *device : bound) {
+    Bulb *b = nullptr;
+    if (device->ieee_addr[0] != 0 || device->ieee_addr[7] != 0) {
+      b = registryFindByIeee(device->ieee_addr);
+      if (b == nullptr) b = registryAdd(device->ieee_addr);
+    } else {
+      // Bound by short address only: match a known bulb by short address.
+      for (size_t i = 0; i < registryCount(); ++i) {
+        if (registryGet(i)->shortAddr == device->short_addr) {
+          b = registryGet(i);
+          break;
+        }
+      }
+    }
+    if (b == nullptr) continue;
+
+    if (device->short_addr != 0xFFFF) b->shortAddr = device->short_addr;
+    if (device->endpoint != 0) b->endpoint = device->endpoint;
+    b->online = true;
+    size_t index = b - registryGet(0);
+    if (index < MAX_BULBS) seen[index] = true;
+  }
+
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (!seen[i] && b->online) {
+      b->online = false;
+      Serial.printf("Zigbee: %s not in binding table (offline)\n", b->name);
+    }
+  }
+}
+
+// --- ZDO address resolution ---------------------------------------------------
+
+void resolveNextBulbShortAddress() {
+  if (registryCount() == 0) return;
+  for (size_t attempt = 0; attempt < registryCount(); ++attempt) {
+    Bulb *b = registryGet(resolveIndex);
+    resolveIndex = (resolveIndex + 1) % registryCount();
+    if (b != nullptr && b->shortAddr == 0xFFFF) {
+      esp_zb_zdo_nwk_addr_req_param_t req = {};  // Copied synchronously.
+      req.dst_nwk_addr = 0x0000;                 // Ask the coordinator (ourselves).
+      memcpy(req.ieee_addr_of_interest, b->ieee, sizeof(esp_zb_ieee_addr_t));
+      req.request_type = 0;  // Single device response.
+      req.start_index = 0;
+      esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
+                                       esp_zb_zdo_nwk_addr_rsp_t *resp, void *) {
+        if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+        Bulb *found = bulbByIeeeFromResponse(resp->ieee_addr);
+        if (found != nullptr && resp->nwk_addr != 0xFFFF &&
+            found->shortAddr != resp->nwk_addr) {
+          found->shortAddr = resp->nwk_addr;
+          Serial.printf("Zigbee: %s short address 0x%04x\n", found->name,
+                        resp->nwk_addr);
+        }
+      }, nullptr);
+      return;
+    }
+  }
+}
+
+void resolveNextUnknownSource() {
+  if (pendingSourceCount == 0) return;
+  const uint16_t shortAddr = pendingSources[0];
+  for (size_t i = 0; i + 1 < pendingSourceCount; ++i) {
+    pendingSources[i] = pendingSources[i + 1];
+  }
+  --pendingSourceCount;
+
+  esp_zb_zdo_ieee_addr_req_param_t req = {};  // Copied synchronously.
+  req.dst_nwk_addr = 0x0000;
+  req.addr_of_interest = shortAddr;
+  req.request_type = 0;
+  req.start_index = 0;
+  esp_zb_zdo_ieee_addr_req(&req, [](esp_zb_zdp_status_t status,
+                                    esp_zb_zdo_ieee_addr_rsp_t *resp, void *) {
+    if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+    Bulb *found = bulbByIeeeFromResponse(resp->ieee_addr);
+    if (found != nullptr) {
+      if (found->shortAddr != resp->nwk_addr) {
+        found->shortAddr = resp->nwk_addr;
+        Serial.printf("Zigbee: %s remapped to 0x%04x\n", found->name,
+                      resp->nwk_addr);
+      }
+    }
+  }, nullptr);
+}
+
+// --- Unbind (device removal) --------------------------------------------------
+
+void sendUnbindForCluster(const Bulb *bulb, uint16_t clusterId) {
+  esp_zb_zdo_bind_req_param_t req = {};  // Copied synchronously.
+  esp_zb_get_long_address(req.src_address);
+  req.src_endp = BULB_ENDPOINT;
+  req.cluster_id = clusterId;
+  req.dst_addr_mode = ESP_ZB_ZDO_BIND_DST_ADDR_MODE_64_BIT_EXTENDED;
+  memcpy(req.dst_address_u.addr_long, bulb->ieee, sizeof(esp_zb_ieee_addr_t));
+  req.dst_endp = bulb->endpoint != 0 ? bulb->endpoint : 1;  // Common bulb EP.
+  req.req_dst_addr = esp_zb_get_short_address();
+  esp_zb_zdo_device_unbind_req(&req, nullptr, nullptr);
+}
+
+}  // namespace
+
+// --- Public API ----------------------------------------------------------------
+
+void zigbeeBegin() {
+  bulbEP.setManufacturerAndModel("MattiaPell", "esp32-zigbee-bulb");
+  bulbEP.allowMultipleBinding(true);
+  bulbEP.onLightStateChangeWithSource(onBulbStateReport);
+  bulbEP.onLightLevelChangeWithSource(onBulbLevelReport);
+  bulbEP.onLightColorChangeWithSource(onBulbColorReport);
+  Zigbee.addEndpoint(&bulbEP);
+
+  esp_coex_wifi_i154_enable();  // Wi-Fi + 802.15.4 coexistence (ESP32-C6).
+
+  if (!Zigbee.begin(ZIGBEE_COORDINATOR)) {
+    Serial.println("Zigbee failed to start. Restarting...");
+    statusLedSetMode(StatusLedMode::Error);
+    const uint32_t errorStarted = millis();
+    while (millis() - errorStarted < 2000) {
+      statusLedTick();
+      delay(10);
+    }
+    ESP.restart();
+  }
+  Serial.println("Zigbee coordinator started.");
+}
+
+void zigbeeOpenPairing(uint8_t seconds) {
+  Zigbee.openNetwork(seconds);
+  pairingOpenedAtMs = millis();
+  pairingSeconds = seconds;
+  Serial.printf("Pairing open for %u seconds.\n", seconds);
+}
+
+bool zigbeePairingActive() {
+  return pairingOpenedAtMs != 0 &&
+         millis() - pairingOpenedAtMs < (uint32_t)pairingSeconds * 1000;
+}
+
+size_t zigbeeBoundDeviceCount() {
+  return bulbEP.getBoundDevices().size();
+}
+
+void zigbeeRemoveDevice(Bulb *bulb) {
+  if (bulb == nullptr) return;
+  sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
+  sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL);
+  sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL);
+
+  zb_device_params_t probe = {};
+  memcpy(probe.ieee_addr, bulb->ieee, sizeof(esp_zb_ieee_addr_t));
+  probe.short_addr = bulb->shortAddr;
+  probe.endpoint = bulb->endpoint;
+  bulbEP.removeBoundDevice(&probe);
+
+  registryRemove(bulb);
+}
+
+void zigbeeRefreshStates() {
+  if (readbackPending) return;
+  readbackPending = true;
+  readbackIndex = 0;
+  lastReadbackMs = 0;
+}
+
+void zigbeeTick() {
+  if (!Zigbee.started()) return;
+
+  const uint32_t now = millis();
+
+  if (!Zigbee.connected()) return;
+
+  // Bindings + registry reconciliation.
+  if (now - lastSyncMs >= 5000 || lastSyncMs == 0) {
+    lastSyncMs = now;
+    syncRegistryWithBindings();
+  }
+
+  // On the first sync that sees registered bulbs, arm the boot queues:
+  // resend stored states, then read back the real ones.
+  static bool bootQueuesArmed = false;
+  if (!bootQueuesArmed && registryCount() > 0) {
+    bootQueuesArmed = true;
+    resendPending = true;
+    resendIndex = 0;
+    zigbeeRefreshStates();
+  }
+
+  // While no bulb is bound, keep a pairing window open so the first bulb can
+  // join without using the UI. The first window opens a few seconds after
+  // the network forms; expired windows are reopened immediately.
+  if (registryCount() == 0 && !zigbeePairingActive()) {
+    if (!pairingOpenAtBootDone) {
+      if (now > 5000) {
+        zigbeeOpenPairing(PAIRING_SECONDS);
+        pairingOpenAtBootDone = true;
+      }
+    } else {
+      zigbeeOpenPairing(PAIRING_SECONDS);
+    }
+  }
+
+  // Resolve missing short addresses (IEEE -> short), one per pass.
+  if (now - lastResolveMs >= 1000) {
+    lastResolveMs = now;
+    resolveNextBulbShortAddress();
+  }
+
+  // Resolve unknown report sources (short -> IEEE), one per pass.
+  if (now - lastSourceResolveMs >= 2000) {
+    lastSourceResolveMs = now;
+    resolveNextUnknownSource();
+  }
+
+  // Boot state resend: one bulb per pass.
+  if (resendPending && now - lastResendMs >= 400) {
+    lastResendMs = now;
+    Bulb *b = registryGet(resendIndex);
+    resendIndex++;
+    if (b != nullptr && bulbReady(b)) {
+      bulbSendFullState(b);
+    }
+    if (resendIndex >= registryCount()) {
+      resendPending = false;
+      Serial.println("Zigbee: stored states resent after boot.");
+    }
+  }
+
+  // Boot readback: staggered attribute reads for immediate UI accuracy.
+  if (readbackPending && now - lastReadbackMs >= 500) {
+    lastReadbackMs = now;
+    while (readbackIndex < registryCount()) {
+      Bulb *b = registryGet(readbackIndex);
+      readbackIndex++;
+      if (b != nullptr && bulbReady(b)) {
+        bulbEP.getLightState(b->endpoint, b->shortAddr);
+        bulbEP.getLightLevel(b->endpoint, b->shortAddr);
+        bulbEP.getLightColor(b->endpoint, b->shortAddr);
+        break;
+      }
+    }
+    if (readbackIndex >= registryCount()) {
+      readbackPending = false;
+    }
+  }
+}
+
+void bulbSendOn(Bulb *bulb) {
+  if (!bulbReady(bulb)) return;
+  bulbEP.lightOn(bulb->endpoint, bulb->shortAddr);
+  bulb->state.power = true;
+  registryMarkDirty();
+}
+
+void bulbSendOff(Bulb *bulb) {
+  if (!bulbReady(bulb)) return;
+  bulbEP.lightOff(bulb->endpoint, bulb->shortAddr);
+  bulb->state.power = false;
+  registryMarkDirty();
+}
+
+void bulbSendToggle(Bulb *bulb) {
+  if (!bulbReady(bulb)) return;
+  bulbEP.lightToggle(bulb->endpoint, bulb->shortAddr);
+  bulb->state.power = !bulb->state.power;
+  registryMarkDirty();
+}
+
+void bulbSendBrightness(Bulb *bulb, uint8_t pct, uint16_t transitionDs) {
+  if (!bulbReady(bulb)) return;
+  if (pct == 0) {
+    bulbSendOff(bulb);
+    return;
+  }
+  uint8_t level = (uint8_t)((pct * 255 + 50) / 100);
+  sendMoveToLevelWithOnOff(bulb, level, clampTransition(transitionDs));
+  bulb->state.power = true;
+  bulb->state.level = level;
+  registryMarkDirty();
+}
+
+void bulbSendKelvin(Bulb *bulb, int kelvin, uint16_t transitionDs) {
+  if (!bulbReady(bulb)) return;
+  sendMoveToColorTemperature(bulb, kelvinToMireds(kelvin),
+                             clampTransition(transitionDs));
+  bulb->state.mode = BulbColorMode::White;
+  bulb->state.kelvin = (uint16_t)constrain(kelvin, MIN_KELVIN, MAX_KELVIN);
+  registryMarkDirty();
+}
+
+void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs) {
+  if (!bulbReady(bulb)) return;
+  espXyColor_t xy = espRgbToXYColor(r, g, b);
+  sendMoveToColor(bulb, xy.x, xy.y, clampTransition(transitionDs));
+  bulb->state.mode = BulbColorMode::Rgb;
+  bulb->state.red = r;
+  bulb->state.green = g;
+  bulb->state.blue = b;
+  registryMarkDirty();
+}
+
+void bulbSendAllOff() {
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (bulbReady(b)) {
+      bulbSendOff(b);
+    } else {
+      b->state.power = false;  // Keep the stored state honest even if offline.
+    }
+  }
+  registryFlush();
+  Serial.println("Kill switch: all bulbs off.");
+}
+
+void bulbSendFullState(Bulb *bulb) {
+  if (!bulbReady(bulb)) return;
+  if (!bulb->state.power) {
+    bulbEP.lightOff(bulb->endpoint, bulb->shortAddr);
+    return;
+  }
+  // Move-to-level with the on/off flag: turns the bulb on and fades to the
+  // stored level even if it was off.
+  sendMoveToLevelWithOnOff(bulb, bulb->state.level, DEFAULT_TRANSITION_DS);
+  if (bulb->state.mode == BulbColorMode::White) {
+    sendMoveToColorTemperature(bulb, kelvinToMireds(bulb->state.kelvin), 0);
+  } else {
+    espXyColor_t xy = espRgbToXYColor(bulb->state.red, bulb->state.green, bulb->state.blue);
+    sendMoveToColor(bulb, xy.x, xy.y, 0);
+  }
+}
