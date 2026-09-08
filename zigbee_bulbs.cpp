@@ -527,6 +527,16 @@ void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitio
   registryMarkDirty();
 }
 
+void bulbSendAllOn() {
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (bulbReady(b)) {
+      bulbSendOn(b);  // The bulb resumes its own last level and color.
+    }
+  }
+  Serial.println("All bulbs on.");
+}
+
 void bulbSendAllOff() {
   for (size_t i = 0; i < registryCount(); ++i) {
     Bulb *b = registryGet(i);

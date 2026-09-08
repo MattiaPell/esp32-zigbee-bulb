@@ -1,5 +1,7 @@
 # esp32-zigbee-bulb
 
+[![build](https://github.com/MattiaPell/esp32-zigbee-bulb/actions/workflows/build.yml/badge.svg)](https://github.com/MattiaPell/esp32-zigbee-bulb/actions/workflows/build.yml)
+
 A standalone web controller for IKEA Zigbee bulbs, built on an ESP32-C6.
 The board forms its own Zigbee network, pairs any number of bulbs, and
 serves a control page over Wi-Fi — no hub, no cloud, no app.
@@ -84,6 +86,7 @@ address in hex (stable across reboots).
 | Method | Path                | Description |
 |--------|---------------------|-------------|
 | GET    | `/api/lights`       | list of bulbs with current state |
+| PATCH  | `/api/lights`       | collection update: `{"on":true}` turns every reachable bulb on (each at its own last state), `{"on":false}` all off |
 | PATCH  | `/api/lights/{id}`  | partial update: `name`, `on`, `brightness` (0–100), `mode` (`white`/`rgb`), `kelvin`, `rgb_hex` (`"#ff8800"`), optional `transition` (0.1 s units) |
 | DELETE | `/api/lights/{id}`  | unbind and forget a bulb |
 | GET    | `/api/pairing`      | `{"open":false,"seconds":180}` |

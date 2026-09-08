@@ -279,6 +279,24 @@ void handleStatusGet() {
 
 // --- Scenes ------------------------------------------------------------------
 
+void handleLightsAllPatch() {
+  const String body = server.arg("plain");
+  bool on;
+  if (!jsonGetBool(body, "on", on)) {
+    sendJsonError(400, "missing on");
+    return;
+  }
+  int applied = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (!bulbReady(b)) continue;
+    if (on) bulbSendOn(b);
+    else bulbSendOff(b);
+    ++applied;
+  }
+  sendJson(200, "{\"applied\":" + String(applied) + "}");
+}
+
 void handleScenesGet() {
   String j = "[";
   for (size_t i = 0; i < scenesCount(); ++i) {
@@ -377,6 +395,10 @@ void dispatch() {
   }
   if (uri == "/api/lights" && method == HTTP_GET) {
     handleLightsGet();
+    return;
+  }
+  if (uri == "/api/lights" && method == HTTP_PATCH) {
+    handleLightsAllPatch();  // Collection update: command every bulb.
     return;
   }
   if (uri.startsWith("/api/lights/")) {

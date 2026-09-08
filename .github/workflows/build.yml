@@ -1,0 +1,34 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+          arduino-cli version
+
+      - name: Install ESP32 core and libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install "Adafruit NeoPixel"
+
+      - name: Prepare secrets stub
+        run: cp secrets.example.h secrets.h
+
+      - name: Compile for ESP32-C6 (ZCZR, custom partitions)
+        run: |
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=custom,CDCOnBoot=default" \
+            --warnings none \
+            .

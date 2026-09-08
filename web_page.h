@@ -16,6 +16,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 --acc:#4da3ff;--ok:#37c26e;--bad:#e5534b;--line:#252d3a}
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
+.masterrow{margin:10px 0 2px}
+.masterrow .toggle{width:44px;height:24px}
 body{background:var(--bg);color:var(--txt);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px;max-width:1100px;margin:auto}
 header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:19px;font-weight:650;letter-spacing:.2px}
@@ -79,6 +81,10 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <div class="status" id="statusLine">
   <span class="dot" id="sdot"></span><span id="stext">connessione&hellip;</span>
 </div>
+<div class="row masterrow">
+  <span class="stitle">Tutte</span>
+  <label class="toggle"><input type="checkbox" id="masterPw" checked><span class="sl"></span></label>
+</div>
 <div id="sceneBar">
   <span class="stitle">Scene</span>
   <span id="chips"></span>
@@ -94,7 +100,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let lights=[],pollTimer=null,modeCache={},lastSig='';
+let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
@@ -215,7 +221,15 @@ function render(){
   const col=card.querySelector('.col');
   if(!editing(id,'col')){if(col.value!==L.rgb_hex)col.value=L.rgb_hex;card.querySelector('.chtxt').textContent=L.rgb_hex.toUpperCase()}
  }
+ // Master switch reflects the aggregate; calm it for a moment after use.
+ const master=$('masterPw');
+ if(Date.now()>masterBusy)master.checked=lights.some(l=>l.on);
 }
+
+$('masterPw').onchange=e=>{
+ masterBusy=Date.now()+1800;
+ api('/api/lights',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:e.target.checked})}).then(refreshSoon);
+};
 
 function bindCard(card){
  const id=card.dataset.id;

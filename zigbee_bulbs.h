@@ -63,6 +63,9 @@ void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitio
 // Kill switch: everything off, state persisted.
 void bulbSendAllOff();
 
+// Turns every reachable bulb back on, each at its own last state.
+void bulbSendAllOn();
+
 // Resends the stored state of one bulb (used after boot / power cut).
 void bulbSendFullState(Bulb *bulb);
 
