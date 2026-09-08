@@ -29,13 +29,174 @@ uint16_t pendingSources[MAX_PENDING_SOURCES];
 size_t pendingSourceCount = 0;
 uint32_t lastSourceResolveMs = 0;
 
+// --- New-device verification (bulb vs remote) --------------------------------
+//
+// Anything bound to our endpoint that is not yet in the registry must be
+// verified before it can enter it: lamps expose on/off as an INPUT (server)
+// cluster, remote controls only as OUTPUT (client). Verification path:
+// resolve the short address (if missing) then read the ZDO simple
+// descriptor of the device endpoint. Non-lights land on a RAM blacklist so
+// joining remotes/steering devices never appear as "Bulb N".
+
+constexpr size_t VERIFY_QUEUE = 4;
+constexpr size_t VERIFY_BLACKLIST = 8;
+constexpr uint8_t VERIFY_MAX_ATTEMPTS = 3;
+
+struct VerifyJob {
+  bool used = false;
+  bool waitingShort = false;
+  esp_zb_ieee_addr_t ieee = {0};
+  uint16_t shortAddr = 0xFFFF;
+  uint8_t endpoint = 0;
+  uint8_t attempts = 0;
+};
+
+VerifyJob verifyQueue[VERIFY_QUEUE];
+esp_zb_ieee_addr_t verifyBlacklist[VERIFY_BLACKLIST];
+size_t verifyBlacklistCount = 0;
+uint32_t lastVerifyMs = 0;
+
+bool ieeeListContains(const esp_zb_ieee_addr_t list[], size_t count, const esp_zb_ieee_addr_t ieee) {
+  for (size_t i = 0; i < count; ++i) {
+    if (memcmp(list[i], ieee, sizeof(esp_zb_ieee_addr_t)) == 0) return true;
+  }
+  return false;
+}
+
+// Registry of IEEE addresses assumed settled (verified lights).
+bool ieeeIsKnownLight(const esp_zb_ieee_addr_t ieee) {
+  for (size_t i = 0; i < registryCount(); ++i) {
+    if (memcmp(registryGet(i)->ieee, ieee, sizeof(esp_zb_ieee_addr_t)) == 0) return true;
+  }
+  return false;
+}
+
+void verifyEnqueue(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr, uint8_t endpoint) {
+  if (ieeeListContains(verifyBlacklist, verifyBlacklistCount, ieee)) {
+    return;  // Already judged not-a-light.
+  }
+  if (ieeeIsKnownLight(ieee)) return;
+  for (size_t i = 0; i < VERIFY_QUEUE; ++i) {
+    if (verifyQueue[i].used &&
+        memcmp(verifyQueue[i].ieee, ieee, sizeof(esp_zb_ieee_addr_t)) == 0) {
+      if (verifyQueue[i].shortAddr == 0xFFFF && shortAddr != 0xFFFF) {
+        verifyQueue[i].shortAddr = shortAddr;
+      }
+      return;
+    }
+  }
+  for (size_t i = 0; i < VERIFY_QUEUE; ++i) {
+    if (!verifyQueue[i].used) {
+      verifyQueue[i] = VerifyJob();
+      verifyQueue[i].used = true;
+      memcpy(verifyQueue[i].ieee, ieee, sizeof(esp_zb_ieee_addr_t));
+      verifyQueue[i].shortAddr = shortAddr;
+      verifyQueue[i].endpoint = endpoint;
+      Serial.printf("Zigbee: verifying bound device %u ep %u...\n",
+                    endpoint, i);
+      return;
+    }
+  }
+}
+
+void verifyJobDone(size_t index) {
+  verifyQueue[index].used = false;
+}
+void verifyTick(uint32_t now) {
+  if (now - lastVerifyMs < 1500) return;
+  lastVerifyMs = now;
+  for (size_t i = 0; i < VERIFY_QUEUE; ++i) {
+    VerifyJob &job = verifyQueue[i];
+    if (!job.used) continue;
+
+    if (job.shortAddr == 0xFFFF) {
+      if (job.waitingShort) {
+        // Previous resolve is still pending; give it another tick.
+        if (++job.attempts >= VERIFY_MAX_ATTEMPTS + 2) {
+          Serial.println("Zigbee: verify gave up (no short address)");
+          job.used = false;
+        }
+        return;
+      }
+      job.waitingShort = true;
+      esp_zb_zdo_nwk_addr_req_param_t req = {};
+      req.dst_nwk_addr = 0xFFFC;
+      memcpy(req.ieee_addr_of_interest, job.ieee, sizeof(esp_zb_ieee_addr_t));
+      req.request_type = 0;
+      req.start_index = 0;
+      if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+      esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
+                                       esp_zb_zdo_nwk_addr_rsp_t *resp, void *) {
+        if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+        for (size_t j = 0; j < VERIFY_QUEUE; ++j) {
+          VerifyJob &w = verifyQueue[j];
+          if (w.used && w.waitingShort &&
+              memcmp(w.ieee, resp->ieee_addr, sizeof(esp_zb_ieee_addr_t)) == 0) {
+            w.shortAddr = resp->nwk_addr;
+            w.waitingShort = false;
+          }
+        }
+      }, nullptr);
+      esp_zb_lock_release();
+      return;
+    }
+
+    esp_zb_zdo_simple_desc_req_param_t req = {};
+    req.addr_of_interest = job.shortAddr;
+    req.endpoint = job.endpoint;
+    if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+    esp_zb_zdo_simple_desc_req(&req, [](esp_zb_zdp_status_t status,
+                                        esp_zb_af_simple_desc_1_1_t *desc, void *) {
+      // Find the job that was waiting for this answer (single outstanding
+      // request at any time by construction).
+      VerifyJob *job = nullptr;
+      for (size_t j = 0; j < VERIFY_QUEUE; ++j) {
+        if (verifyQueue[j].used && !verifyQueue[j].waitingShort) {
+          job = &verifyQueue[j];
+          break;
+        }
+      }
+      if (job == nullptr) return;
+
+      bool isLight = false;
+      if (status == ESP_ZB_ZDP_STATUS_SUCCESS && desc != nullptr) {
+        for (uint8_t c = 0; c < desc->app_input_cluster_count; ++c) {
+          if (desc->app_cluster_list[c] == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
+            isLight = true;
+            break;
+          }
+        }
+        if (!isLight) {
+          Serial.printf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
+                        job->shortAddr, job->endpoint, desc->app_device_id);
+        }
+      }
+      job->used = false;
+      if (isLight) {
+        Bulb *added = registryAdd(job->ieee);
+        if (added != nullptr) {
+          if (job->shortAddr != 0xFFFF) added->shortAddr = job->shortAddr;
+          if (job->endpoint != 0) added->endpoint = job->endpoint;
+          Serial.println("Zigbee: verified bound device is a light: registered.");
+        }
+      } else {
+        if (verifyBlacklistCount < VERIFY_BLACKLIST) {
+          memcpy(verifyBlacklist[verifyBlacklistCount++], job->ieee, sizeof(esp_zb_ieee_addr_t));
+        }
+      }
+    }, nullptr);
+    esp_zb_lock_release();
+    return;
+  }
+}
+
 // Boot state resend queue: one bulb per pass.
 bool resendPending = false;
 size_t resendIndex = 0;
 uint32_t lastResendMs = 0;
 
-// Readback queue: staggered attribute reads after boot.
-bool readbackPending = false;
+// Readback rotation: continuous staggered attribute reads (see tick).
+constexpr uint32_t READBACK_INTERVAL_MS = 8000;
 size_t readbackIndex = 0;
 uint32_t lastReadbackMs = 0;
 
@@ -195,7 +356,11 @@ void syncRegistryWithBindings() {
     Bulb *b = nullptr;
     if (device->ieee_addr[0] != 0 || device->ieee_addr[7] != 0) {
       b = registryFindByIeee(device->ieee_addr);
-      if (b == nullptr) b = registryAdd(device->ieee_addr);
+      if (b == nullptr) {
+        // Not registered yet: verify it is actually a light before adding.
+        verifyEnqueue(device->ieee_addr, device->short_addr, device->endpoint);
+        continue;
+      }
     } else {
       // Bound by short address only: match a known bulb by short address.
       for (size_t i = 0; i < registryCount(); ++i) {
@@ -385,8 +550,7 @@ void zigbeeRemoveDevice(Bulb *bulb) {
 }
 
 void zigbeeRefreshStates() {
-  if (readbackPending) return;
-  readbackPending = true;
+  // The readback loop rotates continuously; a forced refresh just restarts it.
   readbackIndex = 0;
   lastReadbackMs = 0;
 }
@@ -440,6 +604,9 @@ void zigbeeTick() {
     resolveNextUnknownSource();
   }
 
+  // Verify newly-bound devices (bulb vs remote/steering device).
+  verifyTick(now);
+
   // Boot state resend: one bulb per pass.
   if (resendPending && now - lastResendMs >= 400) {
     lastResendMs = now;
@@ -454,21 +621,21 @@ void zigbeeTick() {
     }
   }
 
-  // Boot readback: staggered attribute reads for immediate UI accuracy.
-  if (readbackPending && now - lastReadbackMs >= 500) {
+  // Continuous readback rotation: one bulb every READBACK_INTERVAL_MS, so
+  // physical changes (IKEA remote, factory-reset bulbs that stopped
+  // reporting) reach the registry and the UI within a few seconds.
+  if (registryCount() > 0 && now - lastReadbackMs >= READBACK_INTERVAL_MS) {
     lastReadbackMs = now;
-    while (readbackIndex < registryCount()) {
+    for (size_t n = 0; n < registryCount(); ++n) {
+      readbackIndex = (readbackIndex + 1) % registryCount();
       Bulb *b = registryGet(readbackIndex);
-      readbackIndex++;
       if (b != nullptr && bulbReady(b)) {
+        Serial.printf("Readback -> %s 0x%04x ep %u\n", b->name, b->shortAddr, b->endpoint);
         bulbEP.getLightState(b->endpoint, b->shortAddr);
         bulbEP.getLightLevel(b->endpoint, b->shortAddr);
         bulbEP.getLightColor(b->endpoint, b->shortAddr);
         break;
       }
-    }
-    if (readbackIndex >= registryCount()) {
-      readbackPending = false;
     }
   }
 }
