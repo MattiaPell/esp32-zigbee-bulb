@@ -541,18 +541,26 @@ void bulbSendAllOff() {
 }
 
 void bulbSendFullState(Bulb *bulb) {
+  if (bulb != nullptr) {
+    bulbApplyState(bulb, bulb->state, DEFAULT_TRANSITION_DS);
+  }
+}
+
+void bulbApplyState(Bulb *bulb, const BulbState &wanted, uint16_t transitionDs) {
   if (!bulbReady(bulb)) return;
-  if (!bulb->state.power) {
+  if (!wanted.power) {
     bulbEP.lightOff(bulb->endpoint, bulb->shortAddr);
+    bulb->state.power = false;
     return;
   }
   // Move-to-level with the on/off flag: turns the bulb on and fades to the
-  // stored level even if it was off.
-  sendMoveToLevelWithOnOff(bulb, bulb->state.level, DEFAULT_TRANSITION_DS);
-  if (bulb->state.mode == BulbColorMode::White) {
-    sendMoveToColorTemperature(bulb, kelvinToMireds(bulb->state.kelvin), 0);
+  // wanted level even if it was off.
+  sendMoveToLevelWithOnOff(bulb, wanted.level, transitionDs);
+  if (wanted.mode == BulbColorMode::White) {
+    sendMoveToColorTemperature(bulb, kelvinToMireds(wanted.kelvin), 0);
   } else {
-    espXyColor_t xy = espRgbToXYColor(bulb->state.red, bulb->state.green, bulb->state.blue);
+    espXyColor_t xy = espRgbToXYColor(wanted.red, wanted.green, wanted.blue);
     sendMoveToColor(bulb, xy.x, xy.y, 0);
   }
+  bulb->state = wanted;
 }

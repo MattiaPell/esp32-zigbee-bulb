@@ -39,39 +39,6 @@ void sanitizeName(char *out, size_t cap, const char *in) {
   if (out[0] == '\0') snprintf(out, cap, "Bulb");
 }
 
-String serializeState(const BulbState &st) {
-  String s;
-  s.reserve(48);
-  s += String((uint8_t)st.mode);
-  s += st.power ? ",1" : ",0";
-  s += "," + String(st.level);
-  s += "," + String(st.kelvin);
-  s += "," + String(st.red);
-  s += "," + String(st.green);
-  s += "," + String(st.blue);
-  return s;
-}
-
-void deserializeState(BulbState &st, const String &s) {
-  int v[7] = {0};
-  int n = 0;
-  int start = 0;
-  for (int i = 0; i <= (int)s.length() && n < 7; ++i) {
-    if (i == (int)s.length() || s[i] == ',') {
-      v[n++] = s.substring(start, i).toInt();
-      start = i + 1;
-    }
-  }
-  if (n != 7) return;
-  st.mode = v[0] == 1 ? BulbColorMode::Rgb : BulbColorMode::White;
-  st.power = v[1] != 0;
-  st.level = (uint8_t)constrain(v[2], 0, 255);
-  st.kelvin = (uint16_t)constrain(v[3], MIN_KELVIN, MAX_KELVIN);
-  st.red = (uint8_t)constrain(v[4], 0, 255);
-  st.green = (uint8_t)constrain(v[5], 0, 255);
-  st.blue = (uint8_t)constrain(v[6], 0, 255);
-}
-
 void serializeRuntimeAddr(const Bulb &b, String &out) {
   out = String(b.shortAddr, 16);
   out += ",";
@@ -89,6 +56,41 @@ void deserializeRuntimeAddr(Bulb &b, const String &s) {
 
 }  // namespace
 
+// Public: shared with the scenes module (and NVS storage).
+String serializeBulbState(const BulbState &st) {
+  String s;
+  s.reserve(48);
+  s += String((uint8_t)st.mode);
+  s += st.power ? ",1" : ",0";
+  s += "," + String(st.level);
+  s += "," + String(st.kelvin);
+  s += "," + String(st.red);
+  s += "," + String(st.green);
+  s += "," + String(st.blue);
+  return s;
+}
+
+bool deserializeBulbState(BulbState &st, const String &s) {
+  int v[7] = {0};
+  int n = 0;
+  int start = 0;
+  for (int i = 0; i <= (int)s.length() && n < 7; ++i) {
+    if (i == (int)s.length() || s[i] == ',') {
+      v[n++] = s.substring(start, i).toInt();
+      start = i + 1;
+    }
+  }
+  if (n != 7) return false;
+  st.mode = v[0] == 1 ? BulbColorMode::Rgb : BulbColorMode::White;
+  st.power = v[1] != 0;
+  st.level = (uint8_t)constrain(v[2], 0, 255);
+  st.kelvin = (uint16_t)constrain(v[3], MIN_KELVIN, MAX_KELVIN);
+  st.red = (uint8_t)constrain(v[4], 0, 255);
+  st.green = (uint8_t)constrain(v[5], 0, 255);
+  st.blue = (uint8_t)constrain(v[6], 0, 255);
+  return true;
+}
+
 void registryBegin() {
   prefs.begin(PREFS_NAMESPACE, false);
   bulbCountValue = prefs.getUChar("count", 0);
@@ -100,7 +102,7 @@ void registryBegin() {
     prefs.getBytes((key + "i").c_str(), b.ieee, sizeof(esp_zb_ieee_addr_t));
     String name = prefs.getString((key + "n").c_str(), "");
     sanitizeName(b.name, sizeof(b.name), name.c_str());
-    deserializeState(b.state, prefs.getString((key + "s").c_str(), ""));
+    deserializeBulbState(b.state, prefs.getString((key + "s").c_str(), ""));
     // Short address and endpoint survive reboots in practice (the network
     // resumes and bulbs keep their assignment); refreshed from the binding
     // table and reports anyway.
@@ -199,7 +201,7 @@ void registryFlush() {
     String key = "b" + String(i);
     prefs.putBytes((key + "i").c_str(), b.ieee, sizeof(esp_zb_ieee_addr_t));
     prefs.putString((key + "n").c_str(), b.name);
-    prefs.putString((key + "s").c_str(), serializeState(b.state));
+    prefs.putString((key + "s").c_str(), serializeBulbState(b.state));
     String addr;
     serializeRuntimeAddr(b, addr);
     prefs.putString((key + "a").c_str(), addr);

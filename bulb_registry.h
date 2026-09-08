@@ -66,3 +66,8 @@ void registryFlush();
 void bulbSetBrightnessPct(Bulb *bulb, uint8_t pct);  // 0-100 -> level
 uint8_t bulbBrightnessPct(const Bulb *bulb);         // level -> 0-100
 String bulbIeeeHex(const Bulb *bulb);                // stable API id
+
+// Compact state serialization ("mode,power,level,kelvin,r,g,b"), used by
+// NVS storage and by the scenes module.
+String serializeBulbState(const BulbState &state);
+bool deserializeBulbState(BulbState &state, const String &text);

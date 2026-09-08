@@ -65,3 +65,7 @@ void bulbSendAllOff();
 
 // Resends the stored state of one bulb (used after boot / power cut).
 void bulbSendFullState(Bulb *bulb);
+
+// Drives one bulb to an arbitrary state snapshot: off, or on with the given
+// level and white temperature / RGB color. Used by boot restore and scenes.
+void bulbApplyState(Bulb *bulb, const struct BulbState &wanted, uint16_t transitionDs);
