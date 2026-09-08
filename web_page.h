@@ -9,7 +9,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="data:,">
+<link rel="icon" href="/icon-192.png">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
 <title>esp32-zigbee-bulb</title>
 <style>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1d242e;--txt:#e8ecf2;--mut:#8b95a5;
@@ -37,6 +41,10 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .chip button.del{background:none;border:none;padding:2px 6px;color:var(--mut)}
 .chip button.del:hover{color:var(--bad)}
 button.small{padding:5px 12px;font-size:13px}
+.tmrleft{color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums}
+.tmr{background:none;border:none;color:var(--mut);padding:2px 6px;border-radius:8px;font-size:14px;margin-left:auto}
+.tmr:hover{color:var(--acc);background:var(--card2)}
+.trow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .card.offline{opacity:.55}
 .cardtop{display:flex;align-items:center;gap:8px}
@@ -75,6 +83,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <header>
   <h1>esp32-zigbee-bulb</h1>
   <span class="spacer"></span>
+  <button id="installBtn" class="primary" hidden>Installa app</button>
   <button id="pairBtn" class="primary">Aggiungi lampadina</button>
   <button id="setBtn" title="Impostazioni">&#9881;</button>
 </header>
@@ -84,6 +93,8 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <div class="row masterrow">
   <span class="stitle">Tutte</span>
   <label class="toggle"><input type="checkbox" id="masterPw" checked><span class="sl"></span></label>
+  <button id="masterTimer" class="small" title="Timer: spegni tutte">&#9201;&#65039;</button>
+  <span class="tmrleft" id="masterTimerLeft" hidden></span>
 </div>
 <div id="sceneBar">
   <span class="stitle">Scene</span>
@@ -100,7 +111,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0;
+let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
@@ -114,6 +125,10 @@ async function load(){
   $('sdot').className='dot '+(s.wifi?'on':'off');
   const heap=(s.free_heap/1024).toFixed(0);
   $('stext').textContent=`${s.bulbs} lampadine · ${s.ip} · ${s.rssi} dBm · heap ${heap} kB`;
+  timerAllCache=s.timer_all||0;
+  const mt=$('masterTimerLeft');
+  if(timerAllCache>0){mt.hidden=false;mt.textContent='⏳ '+fmtT(timerAllCache)}
+  else mt.hidden=true;
   renderScenes(sc);
   render();
  }catch(e){}
@@ -180,6 +195,8 @@ function render(){
     <div class="cardtop">
      <button class="bname" title="Rinomina">${esc(L.name)}</button>
      <span class="badge${L.online?' on':''}">${L.online?'online':'offline'}</span>
+     <span class="tmrleft" hidden></span>
+     <button class="tmr" title="Timer spegni">&#9201;&#65039;</button>
      <button class="rmx" title="Rimuovi">&#10005;</button>
     </div>
     <div class="row">
@@ -220,16 +237,40 @@ function render(){
   if(!editing(id,'kel')){if(+kel.value!==L.kelvin)kel.value=L.kelvin;const lbl=card.querySelectorAll('.klbl span')[1];if(lbl)lbl.textContent=L.kelvin+'K'}
   const col=card.querySelector('.col');
   if(!editing(id,'col')){if(col.value!==L.rgb_hex)col.value=L.rgb_hex;card.querySelector('.chtxt').textContent=L.rgb_hex.toUpperCase()}
+  const tleft=card.querySelector('.tmrleft');
+  if(L.timer>0){tleft.hidden=false;tleft.textContent='⏳ '+fmtT(L.timer)}
+  else tleft.hidden=true;
  }
  // Master switch reflects the aggregate; calm it for a moment after use.
  const master=$('masterPw');
  if(Date.now()>masterBusy)master.checked=lights.some(l=>l.on);
 }
 
+function fmtT(s){
+ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;
+ return h>0?`${h}h ${m}m`:m>0?`${m}m ${ss}s`:`${ss}s`;
+}
+
 $('masterPw').onchange=e=>{
  masterBusy=Date.now()+1800;
  api('/api/lights',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:e.target.checked})}).then(refreshSoon);
 };
+
+$('masterTimer').onclick=()=>timerDialog(null,'tutte le lampadine');
+
+function timerDialog(id,label){
+ const path=id?`/api/lights/${id}/timer`:'/api/timer';
+ const remaining=id?(lights.find(l=>l.id===id)?.timer||0):timerAllCache;
+ const set=m=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:Math.round(m*60)})}).then(()=>{$('dlg').close();refreshSoon()});
+ openDialog(`Spegni ${label} tra…`,
+  `<div class="trow"><button class="tpre" data-m="10">10 min</button><button class="tpre" data-m="30">30 min</button><button class="tpre" data-m="60">60 min</button></div>
+   <div class="row"><input type="number" id="tmMin" min="1" max="1440" style="width:90px"> <span class="kv">min</span> &nbsp;<button id="tmGo" class="primary">Imposta</button></div>
+   <div class="drow"${remaining>0?'':' hidden'}><button id="tmCancel" class="danger">Annulla timer (${fmtT(remaining)})</button></div>`,
+  ()=>{},'Chiudi');
+ document.querySelectorAll('.tpre').forEach(b=>b.onclick=()=>set(+b.dataset.m));
+ $('tmGo').onclick=()=>{const v=+$('tmMin').value;if(v>0)set(v)};
+ $('tmCancel').onclick=()=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:0})}).then(()=>{$('dlg').close();refreshSoon()});
+}
 
 function bindCard(card){
  const id=card.dataset.id;
@@ -253,6 +294,8 @@ function bindCard(card){
  const col=card.querySelector('.col');
  col.oninput=()=>{markEdit(id,'col');card.querySelector('.chtxt').textContent=col.value.toUpperCase()};
  col.onchange=()=>api('/api/lights/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb_hex:col.value})}).then(refreshSoon);
+
+ card.querySelector('.tmr').onclick=()=>timerDialog(id,L().name);
 }
 
 function refreshSoon(){clearTimeout(pollTimer);pollTimer=setTimeout(load,400)}
@@ -265,7 +308,7 @@ function patchMode(id,mode){
 
 // --- dialogs ---------------------------------------------------------------
 let dlgAction=null;
-function openDialog(title,bodyHtml,onOk,okLabel='OK'){$('dlgTitle').textContent=title;$('dlgBody').innerHTML=bodyHtml;$('dlgOk').textContent=okLabel;dlgAction=onOk;$('dlg').showModal()}
+function openDialog(title,bodyHtml,onOk,okLabel='OK'){$('dlgTitle').textContent=title;$('dlgBody').innerHTML=bodyHtml;$('dlgOk').textContent=okLabel;dlgAction=onOk;$('dlgCancel').textContent='Annulla';$('dlg').showModal()}
 $('dlgCancel').onclick=()=>$('dlg').close();
 $('dlgOk').onclick=()=>{if(dlgAction&&dlgAction()===false)return;$('dlg').close()};
 
@@ -314,6 +357,42 @@ $('statusLine').onclick=()=>$('setBtn').onclick();
 
 load();
 setInterval(load,2500);
+
+// Installable app: show the button when the browser offers the prompt.
+let installEvt=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;$('installBtn').hidden=false});
+$('installBtn').onclick=async()=>{if(!installEvt)return;installEvt.prompt();installEvt=null;$('installBtn').hidden=true};
+if(navigator.serviceWorker&&!window.navigator.standalone)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script>
 </body>
 </html>)rawliteral";
+
+static const char MANIFEST_JSON[] PROGMEM = R"rawliteral({
+"name": "esp32-zigbee-bulb",
+"short_name": "Bulb",
+"description": "Controllo lampadine Zigbee IKEA",
+"start_url": "/",
+"scope": "/",
+"display": "standalone",
+"background_color": "#0e1116",
+"theme_color": "#0e1116",
+"icons": [
+  {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+  {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+]
+})rawliteral";
+
+// Network-first service worker: keeps the UI always fresh, makes the app
+// installable and caches the static shell as a fallback.
+static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v1';
+const SHELL=['/','/icon-192.png','/icon-512.png','/manifest.json'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
+self.addEventListener('fetch',e=>{
+  if(e.request.method!=='GET'||!e.request.url.startsWith(self.location.origin))return;
+  e.respondWith(caches.open(V).then(c=>c.match(e.request).then(hit=>fetch(e.request).then(r=>{
+    if(r.ok&&(e.request.headers.get('accept')||'').includes('text/html')||SHELL.some(p=>e.request.url.endsWith(p)))c.put(e.request,r.clone());
+    return r;
+  }).catch(()=>hit||Response.error()))));
+});
+)rawliteral";
