@@ -1,0 +1,12 @@
+# Wi-Fi credentials
+secrets.h
+
+# Build artifacts
+build/
+*.elf
+*.bin
+*.map
+
+# IDE
+.vscode/
+.idea/
