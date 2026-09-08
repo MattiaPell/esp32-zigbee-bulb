@@ -34,6 +34,9 @@ void zigbeeOpenPairing(uint8_t seconds);
 bool zigbeePairingActive();
 size_t zigbeeBoundDeviceCount();
 
+// True when the bulb is bound, addressable and able to receive commands.
+bool bulbReady(const Bulb *bulb);
+
 // ZDO-unbinds the bulb (all clusters), drops it from the endpoint and the
 // registry. Bulbs that are unreachable may re-appear on the next sync.
 void zigbeeRemoveDevice(Bulb *bulb);

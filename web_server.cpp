@@ -152,6 +152,15 @@ void handleLightPatch(const String &id) {
     return;
   }
 
+  // Rename works offline; anything that drives the bulb does not.
+  static const char *controlKeys[] = {"on", "brightness", "kelvin", "rgb_hex", "mode"};
+  for (const char *key : controlKeys) {
+    if (findJsonKey(body, key) != (size_t)-1 && !bulbReady(b)) {
+      sendJsonError(409, "light is offline");
+      return;
+    }
+  }
+
   bool changed = false;
   String name;
   if (jsonGetString(body, "name", name)) {
