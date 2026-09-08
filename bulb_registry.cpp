@@ -72,6 +72,21 @@ void deserializeState(BulbState &st, const String &s) {
   st.blue = (uint8_t)constrain(v[6], 0, 255);
 }
 
+void serializeRuntimeAddr(const Bulb &b, String &out) {
+  out = String(b.shortAddr, 16);
+  out += ",";
+  out += String(b.endpoint);
+}
+
+void deserializeRuntimeAddr(Bulb &b, const String &s) {
+  int comma = s.indexOf(',');
+  if (comma < 0) return;
+  long shortAddr = strtol(s.substring(0, comma).c_str(), nullptr, 16);
+  int endpoint = s.substring(comma + 1).toInt();
+  if (shortAddr > 0 && shortAddr < 0xFFF8) b.shortAddr = (uint16_t)shortAddr;
+  if (endpoint > 0 && endpoint <= 240) b.endpoint = (uint8_t)endpoint;
+}
+
 }  // namespace
 
 void registryBegin() {
@@ -86,8 +101,10 @@ void registryBegin() {
     String name = prefs.getString((key + "n").c_str(), "");
     sanitizeName(b.name, sizeof(b.name), name.c_str());
     deserializeState(b.state, prefs.getString((key + "s").c_str(), ""));
-    b.shortAddr = 0xFFFF;
-    b.endpoint = 0;
+    // Short address and endpoint survive reboots in practice (the network
+    // resumes and bulbs keep their assignment); refreshed from the binding
+    // table and reports anyway.
+    deserializeRuntimeAddr(b, prefs.getString((key + "a").c_str(), ""));
     b.online = false;
   }
 }
@@ -183,6 +200,9 @@ void registryFlush() {
     prefs.putBytes((key + "i").c_str(), b.ieee, sizeof(esp_zb_ieee_addr_t));
     prefs.putString((key + "n").c_str(), b.name);
     prefs.putString((key + "s").c_str(), serializeState(b.state));
+    String addr;
+    serializeRuntimeAddr(b, addr);
+    prefs.putString((key + "a").c_str(), addr);
   }
 }
 
