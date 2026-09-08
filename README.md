@@ -46,7 +46,9 @@ No other dependencies: the web page is embedded, JSON is hand-rolled.
 2. Copy `secrets.example.h` to `secrets.h` and enter your 2.4 GHz Wi-Fi
    credentials. (`secrets.h` is ignored by Git and must not be committed.)
 3. Select `ESP32C6 Dev Module` under **Tools > Board**.
-4. `USB CDC On Boot` → **Enabled**.
+4. `USB CDC On Boot` → **Disabled** (the serial console runs on the
+   board's UART bridge; if you cable the ESP32-C6's USB-JTAG connector
+   instead, set it to Enabled).
 5. `Zigbee mode` → **Zigbee ZCZR (coordinator/router)**.
 6. `Partition Scheme` → **Custom** (the included `partitions.csv` keeps
    Espressif's Zigbee storage partitions and gives the app room to breathe).
