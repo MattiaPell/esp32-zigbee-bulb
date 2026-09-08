@@ -13,6 +13,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "scenes.h"
 #include "web_page.h"
 #include "zigbee_bulbs.h"
 
@@ -276,8 +277,78 @@ void handleStatusGet() {
   sendJson(200, j);
 }
 
-bool isValidHostname(const String &name) {
-  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
+// --- Scenes ------------------------------------------------------------------
+
+void handleScenesGet() {
+  String j = "[";
+  for (size_t i = 0; i < scenesCount(); ++i) {
+    if (i > 0) j += ",";
+    j += "{\"name\":\"" + sceneNameAt(i) + "\"}";
+  }
+  j += "]";
+  sendJson(200, j);
+}
+
+void handleSceneCreate() {
+  const String body = server.arg("plain");
+  String name;
+  if (!jsonGetString(body, "name", name)) {
+    sendJsonError(400, "missing name");
+    return;
+  }
+  name.toLowerCase();
+  if (!isValidSceneName(name)) {
+    sendJsonError(400, "invalid name (a-z, 0-9, '-', '_', max 20 chars)");
+    return;
+  }
+  if (!sceneCapture(name)) {
+    sendJsonError(500, "capture failed (no bulbs or storage full)");
+    return;
+  }
+  sendJson(201, "{\"name\":\"" + name + "\"}");
+}
+
+void handleSceneCapture(const String &nameIn) {
+  String name = nameIn;
+  name.toLowerCase();
+  if (!isValidSceneName(name)) {
+    sendJsonError(400, "invalid name");
+    return;
+  }
+  if (sceneIndexOf(name) < 0) {
+    sendJsonError(404, "unknown scene");
+    return;
+  }
+  if (!sceneCapture(name)) {
+    sendJsonError(500, "capture failed");
+    return;
+  }
+  sendJson(200, "{\"name\":\"" + name + "\"}");
+}
+
+void handleSceneRecall(const String &nameIn) {
+  String name = nameIn;
+  name.toLowerCase();
+  int applied = 0, skipped = 0;
+  if (!sceneRecall(name, applied, skipped)) {
+    sendJsonError(404, "unknown scene");
+    return;
+  }
+  sendJson(200, "{\"applied\":" + String(applied) + ",\"skipped\":" + String(skipped) + "}");
+}
+
+void handleSceneDelete(const String &nameIn) {
+  String name = nameIn;
+  name.toLowerCase();
+  if (sceneIndexOf(name) < 0) {
+    sendJsonError(404, "unknown scene");
+    return;
+  }
+  sceneDelete(name);
+  sendJson(200, "{\"ok\":true}");
+}
+
+bool isValidHostname(const String &name) {  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
   if (name[0] == '-' || name[name.length() - 1] == '-') return false;
   for (unsigned i = 0; i < name.length(); ++i) {
     char c = name[i];
@@ -316,6 +387,30 @@ void dispatch() {
     }
     if (method == HTTP_DELETE) {
       handleLightDelete(id);
+      return;
+    }
+  }
+  if (uri == "/api/scenes" && method == HTTP_GET) {
+    handleScenesGet();
+    return;
+  }
+  if (uri == "/api/scenes" && method == HTTP_POST) {
+    handleSceneCreate();
+    return;
+  }
+  if (uri.startsWith("/api/scenes/")) {
+    // "/api/scenes/<name>" or "/api/scenes/<name>/recall"
+    const String rest = uri.substring(strlen("/api/scenes/"));
+    if (rest.endsWith("/recall") && method == HTTP_POST) {
+      handleSceneRecall(rest.substring(0, rest.length() - 7));
+      return;
+    }
+    if (method == HTTP_DELETE) {
+      handleSceneDelete(rest);
+      return;
+    }
+    if (method == HTTP_PATCH) {
+      handleSceneCapture(rest);  // Re-capture under the same name.
       return;
     }
   }

@@ -23,6 +23,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "power_button.h"
+#include "scenes.h"
 #include "serial_console.h"
 #include "status_led.h"
 #include "web_server.h"
@@ -62,6 +63,7 @@ void setup() {
   statusLedSetMode(StatusLedMode::WifiConnecting);
 
   registryBegin();
+  scenesBegin();
   powerButtonBegin(onKillSwitch);
 
   webBegin();

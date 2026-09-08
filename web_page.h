@@ -28,6 +28,13 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--mut);flex:none}
 .dot.on{background:var(--ok)}.dot.off{background:var(--bad)}
 #lights{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+#sceneBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.stitle{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-right:4px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 12px;margin:2px}
+.chip button.play{background:none;border:none;padding:2px 4px;color:var(--acc);font-weight:700}
+.chip button.del{background:none;border:none;padding:2px 6px;color:var(--mut)}
+.chip button.del:hover{color:var(--bad)}
+button.small{padding:5px 12px;font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .card.offline{opacity:.55}
 .cardtop{display:flex;align-items:center;gap:8px}
@@ -72,6 +79,11 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <div class="status" id="statusLine">
   <span class="dot" id="sdot"></span><span id="stext">connessione&hellip;</span>
 </div>
+<div id="sceneBar">
+  <span class="stitle">Scene</span>
+  <span id="chips"></span>
+  <button id="sceneAdd" class="small">+ Salva scena</button>
+</div>
 <main id="lights"></main>
 
 <dialog id="dlg"><h2 id="dlgTitle"></h2><div id="dlgBody"></div>
@@ -91,12 +103,54 @@ async function api(path,opts){const r=await fetch(path,opts);const j=await r.jso
 async function load(){
  try{
   lights=await api('/api/lights');
+  const sc=await api('/api/scenes');
   const s=await api('/api/status');
   $('sdot').className='dot '+(s.wifi?'on':'off');
   const heap=(s.free_heap/1024).toFixed(0);
   $('stext').textContent=`${s.bulbs} lampadine · ${s.ip} · ${s.rssi} dBm · heap ${heap} kB`;
+  renderScenes(sc);
   render();
  }catch(e){}
+}
+
+function renderScenes(sc){
+ const bar=$('sceneBar');   // Always visible: the save button must be reachable
+ bar.hidden=false;          // even with zero scenes.
+ if(!sc.length){$('chips').innerHTML='';bar.dataset.sig='';return}
+ const sig=sc.map(s=>s.name).join('|');
+ if(sig===bar.dataset.sig)return;
+ bar.dataset.sig=sig;
+ const box=$('chips');box.innerHTML='';
+ for(const s of sc){
+  const chip=document.createElement('span');chip.className='chip';
+  const play=document.createElement('button');play.className='play';play.title='Richiama';
+  play.innerHTML='&#9654;';
+  play.onclick=async()=>{const r=await api('/api/scenes/'+s.name+'/recall',{method:'POST'});toast(`Scena «${s.name}»: ${r.applied} lampadine`)};
+  const nm=document.createElement('span');nm.textContent=s.name;
+  const del=document.createElement('button');del.className='del';del.title='Elimina';
+  del.innerHTML='&#10005;';
+  del.onclick=()=>sceneDeleteDialog(s);
+  chip.append(play,nm,del);box.append(chip);
+ }
+}
+
+$('sceneAdd').onclick=()=>{
+ openDialog('Salva scena',
+  `<label>Nome (a-z, cifre, - _)</label><input type="text" id="scName" maxlength="20" pattern="[a-z0-9_-]+">
+   <div class="kv">Registra lo stato attuale di tutte le lampadine.</div>`,
+  async()=>{
+   const v=$('scName').value.trim().toLowerCase();
+   if(!v)return false;
+   await api('/api/scenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v})});
+   toast('Scena «'+v+'» salvata');refreshSoon();
+  },'Salva');
+ setTimeout(()=>$('scName').focus(),50);
+};
+
+function sceneDeleteDialog(s){
+ openDialog('Eliminare la scena «'+s.name+'»?','',async()=>{
+  await api('/api/scenes/'+s.name,{method:'DELETE'});refreshSoon();
+ },'Elimina');
 }
 
 function editing(id,field){const e=modeCache[id];return e&&e.f===field&&Date.now()<e.t}
