@@ -4,15 +4,18 @@
 
 A standalone web controller for IKEA Zigbee bulbs, built on an ESP32-C6.
 The board forms its own Zigbee network, pairs any number of bulbs, and
-serves a control page over Wi-Fi — no hub, no cloud, no app.
+serves a control page over Wi-Fi â€” no hub, no cloud, no app.
 
 Features:
 
 - **Multi-bulb**: pairs and controls several bulbs, each with its own card
   in the web page (rename, remove, per-bulb state);
-- on/off, brightness, white temperature (2200–4000 K) and RGB color per bulb;
+- on/off, brightness, white temperature (2200â€“4000 K) and RGB color per bulb;
 - **named scenes**: capture the current state of every bulb under a name
   and recall it later (persisted in NVS);
+- **off timers**: schedule any (or all) bulbs to turn off in a few minutes;
+- **installable app**: the control page is a PWA with its own icon â€”
+  "Add to home screen" and it runs fullscreen like a native app;
 - light state (power, brightness, white tone or color) restored after a
   reboot or power cut, then reconciled with what the bulbs actually report;
 - automatic pairing while no bulb is bound, or on demand from the UI;
@@ -26,8 +29,8 @@ Deliberately out of scope: alarms and wake-light scheduling.
 ## Hardware
 
 - ESP32-C6 development board with 4 MB flash
-- IKEA Zigbee bulbs — dimming and white temperature work on any IKEA bulb;
-  RGB color requires a color model such as TRÅDFRI E27 CWS 806 lm or
+- IKEA Zigbee bulbs â€” dimming and white temperature work on any IKEA bulb;
+  RGB color requires a color model such as TRÃ…DFRI E27 CWS 806 lm or
   SOLHETTA E27 CWS 1000 lm
 - USB cable for flashing
 
@@ -49,11 +52,11 @@ No other dependencies: the web page is embedded, JSON is hand-rolled.
 2. Copy `secrets.example.h` to `secrets.h` and enter your 2.4 GHz Wi-Fi
    credentials. (`secrets.h` is ignored by Git and must not be committed.)
 3. Select `ESP32C6 Dev Module` under **Tools > Board**.
-4. `USB CDC On Boot` → **Disabled** (the serial console runs on the
+4. `USB CDC On Boot` â†’ **Disabled** (the serial console runs on the
    board's UART bridge; if you cable the ESP32-C6's USB-JTAG connector
    instead, set it to Enabled).
-5. `Zigbee mode` → **Zigbee ZCZR (coordinator/router)**.
-6. `Partition Scheme` → **Custom** (the included `partitions.csv` keeps
+5. `Zigbee mode` â†’ **Zigbee ZCZR (coordinator/router)**.
+6. `Partition Scheme` â†’ **Custom** (the included `partitions.csv` keeps
    Espressif's Zigbee storage partitions and gives the app room to breathe).
 7. Upload, then open the serial monitor at 115200 baud.
 
@@ -71,7 +74,7 @@ firmware updates are flashed over USB.
 4. Open the address printed on the serial monitor, or `http://bulb.local/`
    (the hostname is configurable).
 
-To remove a bulb, use the ✕ on its card: the controller sends a ZDO unbind
+To remove a bulb, use the âœ• on its card: the controller sends a ZDO unbind
 and forgets the stored state.
 
 The onboard status LED shows: blinking blue = Wi-Fi connecting, blinking
@@ -87,7 +90,7 @@ address in hex (stable across reboots).
 |--------|---------------------|-------------|
 | GET    | `/api/lights`       | list of bulbs with current state |
 | PATCH  | `/api/lights`       | collection update: `{"on":true}` turns every reachable bulb on (each at its own last state), `{"on":false}` all off |
-| PATCH  | `/api/lights/{id}`  | partial update: `name`, `on`, `brightness` (0–100), `mode` (`white`/`rgb`), `kelvin`, `rgb_hex` (`"#ff8800"`), optional `transition` (0.1 s units) |
+| PATCH  | `/api/lights/{id}`  | partial update: `name`, `on`, `brightness` (0â€“100), `mode` (`white`/`rgb`), `kelvin`, `rgb_hex` (`"#ff8800"`), optional `transition` (0.1 s units) |
 | DELETE | `/api/lights/{id}`  | unbind and forget a bulb |
 | GET    | `/api/pairing`      | `{"open":false,"seconds":180}` |
 | POST   | `/api/pairing`      | `{"seconds":180}` opens the network |
@@ -98,6 +101,8 @@ address in hex (stable across reboots).
 | PATCH  | `/api/scenes/{name}`| re-captures (updates) an existing scene |
 | POST   | `/api/scenes/{name}/recall` | applies the stored states |
 | DELETE | `/api/scenes/{name}` | forgets a scene |
+| POST   | `/api/lights/{id}/timer` | `{"seconds":600}` turns that bulb off after the delay (0 cancels) |
+| POST   | `/api/timer`        | same, for every bulb (the deadline lives only in RAM: a reboot clears it) |
 
 Examples:
 
@@ -130,7 +135,7 @@ addressed by short address + endpoint, both refreshed at runtime: after a
 boot the short addresses are re-resolved from IEEE addresses (a ZDO
 NWK-address request per bulb), and attribute reports are routed back to the
 right bulb by source address. Direct IEEE-addressed commands are avoided on
-purpose — they proved unreliable with IKEA bulbs.
+purpose â€” they proved unreliable with IKEA bulbs.
 
 Per-bulb state is persisted in NVS and written with a debounce. Identity is
 the IEEE address, so bulbs keep their name and state across reboots even if
@@ -138,14 +143,14 @@ their short address changes.
 
 ## Credits
 
-- [Espressif Arduino core](https://github.com/espressif/arduino-esp32) — the
+- [Espressif Arduino core](https://github.com/espressif/arduino-esp32) â€” the
   Zigbee library and its examples, under the Apache License 2.0, are the
   foundation of the coordinator setup here.
-- [Daniel90mm/esp32c6-zigbee-ikea](https://github.com/Daniel90mm/esp32c6-zigbee-ikea) —
+- [Daniel90mm/esp32c6-zigbee-ikea](https://github.com/Daniel90mm/esp32c6-zigbee-ikea) â€”
   the project that inspired this one. This repository is an independent
   implementation: no code is shared, but the idea (an ESP32-C6 controller
   for IKEA bulbs with a web page) and the pairing flow come from it.
 
 ## License
 
-[MIT](LICENSE) — © 2026 MattiaPell
+[MIT](LICENSE) â€” Â© 2026 MattiaPell
