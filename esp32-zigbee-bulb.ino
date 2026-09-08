@@ -22,6 +22,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "light_timers.h"
 #include "power_button.h"
 #include "scenes.h"
 #include "serial_console.h"
@@ -64,6 +65,7 @@ void setup() {
 
   registryBegin();
   scenesBegin();
+  lightTimersBegin();
   powerButtonBegin(onKillSwitch);
 
   webBegin();
@@ -79,6 +81,7 @@ void loop() {
   serialConsoleTick();
   powerButtonTick();
   zigbeeTick();
+  lightTimersTick();
   registryTick();
 
   updateStatusLed();

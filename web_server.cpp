@@ -13,7 +13,9 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "light_timers.h"
 #include "scenes.h"
+#include "web_icons.h"
 #include "web_page.h"
 #include "zigbee_bulbs.h"
 
@@ -116,7 +118,9 @@ String lightJson(const Bulb *b) {
   char hex[7];
   snprintf(hex, sizeof(hex), "%02x%02x%02x", b->state.red, b->state.green, b->state.blue);
   j += hex;
-  j += "\",\"endpoint\":";
+  j += "\",\"timer\":";
+  j += bulbTimerRemaining(b);
+  j += ",\"endpoint\":";
   j += b->endpoint;
   j += ",\"short_addr\":\"0x";
   j += String(b->shortAddr, HEX);
@@ -273,6 +277,8 @@ void handleStatusGet() {
   j += hostnameValue;
   j += "\",\"pairing_open\":";
   j += zigbeePairingActive() ? "true" : "false";
+  j += ",\"timer_all\":";
+  j += bulbTimerRemainingAll();
   j += "}";
   sendJson(200, j);
 }
@@ -366,6 +372,44 @@ void handleSceneDelete(const String &nameIn) {
   sendJson(200, "{\"ok\":true}");
 }
 
+// --- Timers ------------------------------------------------------------------
+
+// POST /api/lights/{id}/timer and /api/timer: {"seconds":N} (0 cancels).
+void handleLightTimerPost(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  const String body = server.arg("plain");
+  long seconds;
+  if (!jsonGetInt(body, "seconds", seconds)) {
+    sendJsonError(400, "missing seconds");
+    return;
+  }
+  if (seconds < 0 || seconds > (long)(24UL * 60 * 60)) {
+    sendJsonError(400, "seconds out of range (0-86400)");
+    return;
+  }
+  bulbTimerSet(b, (uint32_t)seconds);
+  sendJson(200, "{\"timer\":" + String(bulbTimerRemaining(b)) + "}");
+}
+
+void handleAllTimerPost() {
+  const String body = server.arg("plain");
+  long seconds;
+  if (!jsonGetInt(body, "seconds", seconds)) {
+    sendJsonError(400, "missing seconds");
+    return;
+  }
+  if (seconds < 0 || seconds > (long)(24UL * 60 * 60)) {
+    sendJsonError(400, "seconds out of range (0-86400)");
+    return;
+  }
+  bulbTimerSetAll((uint32_t)seconds);
+  sendJson(200, "{\"timer\":" + String(bulbTimerRemainingAll()) + "}");
+}
+
 bool isValidHostname(const String &name) {  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
   if (name[0] == '-' || name[name.length() - 1] == '-') return false;
   for (unsigned i = 0; i < name.length(); ++i) {
@@ -393,6 +437,24 @@ void dispatch() {
     server.send_P(200, "text/html", INDEX_HTML);
     return;
   }
+  if (method == HTTP_GET) {  // Static PWA assets.
+    if (uri == "/manifest.json") {
+      server.send_P(200, "application/manifest+json", MANIFEST_JSON);
+      return;
+    }
+    if (uri == "/sw.js") {
+      server.send_P(200, "application/javascript", SW_JS);
+      return;
+    }
+    if (uri == "/icon-192.png") {
+      server.send_P(200, "image/png", (PGM_P)ICON_192, ICON_192_LEN);
+      return;
+    }
+    if (uri == "/icon-512.png") {
+      server.send_P(200, "image/png", (PGM_P)ICON_512, ICON_512_LEN);
+      return;
+    }
+  }
   if (uri == "/api/lights" && method == HTTP_GET) {
     handleLightsGet();
     return;
@@ -402,15 +464,23 @@ void dispatch() {
     return;
   }
   if (uri.startsWith("/api/lights/")) {
-    const String id = uri.substring(strlen("/api/lights/"));
+    const String rest = uri.substring(strlen("/api/lights/"));
+    if (rest.endsWith("/timer") && method == HTTP_POST) {
+      handleLightTimerPost(rest.substring(0, rest.length() - 6));
+      return;
+    }
     if (method == HTTP_PATCH) {
-      handleLightPatch(id);
+      handleLightPatch(rest);
       return;
     }
     if (method == HTTP_DELETE) {
-      handleLightDelete(id);
+      handleLightDelete(rest);
       return;
     }
+  }
+  if (uri == "/api/timer" && method == HTTP_POST) {
+    handleAllTimerPost();
+    return;
   }
   if (uri == "/api/scenes" && method == HTTP_GET) {
     handleScenesGet();
