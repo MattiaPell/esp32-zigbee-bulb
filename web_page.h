@@ -15,6 +15,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1d242e;--txt:#e8ecf2;--mut:#8b95a5;
 --acc:#4da3ff;--ok:#37c26e;--bad:#e5534b;--line:#252d3a}
 *{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--txt);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px;max-width:1100px;margin:auto}
 header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:19px;font-weight:650;letter-spacing:.2px}
