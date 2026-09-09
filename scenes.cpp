@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "config.h"
+#include "debug_log.h"
 #include "web_hooks.h"
 #include "zigbee_bulbs.h"
 
@@ -127,7 +128,7 @@ bool sceneCapture(const String &name) {
   if (at < 0) {
     at = findFreeSpot();
     if (at < 0) {
-      Serial.println("Scenes: storage full");
+      debugLogPrintln("Scenes: storage full");
       return false;
     }
     name.toCharArray(scenes[at].name, sizeof(scenes[at].name));
@@ -135,7 +136,7 @@ bool sceneCapture(const String &name) {
 
   prefs.putString(("s" + String(at) + "d").c_str(), data);
   prefs.putUChar("count", scenesCount());
-  Serial.printf("Scenes: captured '%s' (%u bulbs)\n", name.c_str(),
+  debugLogPrintf("Scenes: captured '%s' (%u bulbs)\n", name.c_str(),
                 (unsigned)registryCount());
   return true;
 }
@@ -181,7 +182,7 @@ bool sceneRecall(const String &name, int &applied, int &skipped) {
 
   registryFlush();
   webHookEvent("scene_applied", "", "", name.c_str());
-  Serial.printf("Scenes: '%s' recalled (%d applied, %d skipped)\n", name.c_str(),
+  debugLogPrintf("Scenes: '%s' recalled (%d applied, %d skipped)\n", name.c_str(),
                 applied, skipped);
   return true;
 }
@@ -193,5 +194,5 @@ void sceneDelete(const String &name) {
   prefs.remove(("s" + String(at) + "d").c_str());
   scenes[at].name[0] = '\0';
   prefs.putUChar("count", scenesCount());
-  Serial.printf("Scenes: deleted '%s'\n", name.c_str());
+  debugLogPrintf("Scenes: deleted '%s'\n", name.c_str());
 }

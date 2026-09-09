@@ -11,6 +11,7 @@
 #endif
 
 #include "config.h"
+#include "debug_log.h"
 
 namespace {
 
@@ -88,10 +89,10 @@ bool postEvent(const String &url, const String &body) {
   const int code = http.POST(body);
   http.end();
   if (code <= 0) {
-    Serial.printf("Webhooks: %s failed (%d)\n", url.c_str(), code);
+    debugLogPrintf("Webhooks: %s failed (%d)\n", url.c_str(), code);
     return false;
   }
-  Serial.printf("Webhooks: %s -> %d\n", url.c_str(), code);
+  debugLogPrintf("Webhooks: %s -> %d\n", url.c_str(), code);
   return true;
 }
 
@@ -170,7 +171,7 @@ bool webHookEvent(const char *event, const char *bulbId, const char *bulbName,
     ++usedCount;
     return true;
   }
-  Serial.println("Webhooks: queue full, event dropped");
+  debugLogPrintln("Webhooks: queue full, event dropped");
   return false;
 }
 
@@ -226,7 +227,7 @@ bool webHookUrlAdd(const String &url) {
   prefs.begin(PREFS_NS, false);
   prefs.putString(("u" + String(urlCount - 1)).c_str(), url);
   prefs.putUChar("count", (uint8_t)urlCount);
-  Serial.printf("Webhooks: URL added (%u stored)\n", (unsigned)urlCount);
+  debugLogPrintf("Webhooks: URL added (%u stored)\n", (unsigned)urlCount);
   return true;
 }
 

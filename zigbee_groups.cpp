@@ -3,6 +3,7 @@
 #include <Zigbee.h>
 
 #include "config.h"
+#include "debug_log.h"
 #include "zigbee_bulbs.h"
 
 namespace {
@@ -142,7 +143,7 @@ void groupTick(uint32_t now) {
     job.used = false;
     if (err == ESP_OK) {
       b->groupMember = true;  // Optimistic: re-sent on the next online pass.
-      Serial.printf("Groups: %s joined group 0x%04x\n", b->name, ZIGBEE_GROUP_ID);
+      debugLogPrintf("Groups: %s joined group 0x%04x\n", b->name, ZIGBEE_GROUP_ID);
     }
     return;  // One enrollment per pass.
   }

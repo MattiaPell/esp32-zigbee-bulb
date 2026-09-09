@@ -1,6 +1,7 @@
 #include "light_timers.h"
 
 #include "bulb_registry.h"
+#include "debug_log.h"
 #include "web_hooks.h"
 #include "zigbee_bulbs.h"
 
@@ -41,7 +42,7 @@ void setSlot(int slot, const esp_zb_ieee_addr_t ieee, uint32_t seconds) {
   memcpy(entries[slot].ieee, ieee, sizeof(esp_zb_ieee_addr_t));
   entries[slot].active = true;
   entries[slot].expireMs = millis() + seconds * 1000UL;
-  Serial.printf("Timers: off in %lu s (slot %d)\n", (unsigned long)seconds, slot);
+  debugLogPrintf("Timers: off in %lu s (slot %d)\n", (unsigned long)seconds, slot);
 }
 
 }  // namespace
@@ -66,7 +67,7 @@ void lightTimersTick() {
         }
       }
       entries[i].active = false;
-      Serial.println("Timers: expired, bulbs off.");
+      debugLogPrintln("Timers: expired, bulbs off.");
     }
   }
 }
@@ -77,12 +78,12 @@ void bulbTimerSet(Bulb *bulb, uint32_t seconds) {
   if (seconds == 0) {
     if (slot >= 0) {
       entries[slot].active = false;
-      Serial.printf("Timers: cancelled for %s\n", bulb->name);
+      debugLogPrintf("Timers: cancelled for %s\n", bulb->name);
     }
     return;
   }
   if (slot < 0) {
-    Serial.println("Timers: no free slot");
+    debugLogPrintln("Timers: no free slot");
     return;
   }
   setSlot(slot, bulb->ieee, seconds);
@@ -101,12 +102,12 @@ void bulbTimerSetAll(uint32_t seconds) {
   if (seconds == 0) {
     if (slot >= 0) {
       entries[slot].active = false;
-      Serial.println("Timers: global timer cancelled");
+      debugLogPrintln("Timers: global timer cancelled");
     }
     return;
   }
   if (slot < 0) {
-    Serial.println("Timers: no free slot");
+    debugLogPrintln("Timers: no free slot");
     return;
   }
   setSlot(slot, kZeroIeee, seconds);

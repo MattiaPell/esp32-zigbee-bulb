@@ -5,6 +5,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "debug_log.h"
 
 namespace {
 
@@ -30,7 +31,7 @@ void otaBegin() {
       state == ESP_OTA_IMG_PENDING_VERIFY) {
     validating = true;
     validatingSinceMs = millis();
-    Serial.printf("OTA: slot %s pending verify; confirming after %u s if stable\n",
+    debugLogPrintf("OTA: slot %s pending verify; confirming after %u s if stable\n",
                   running->label, (unsigned)(OTA_VALIDATION_MS / 1000));
   }
 }
@@ -39,11 +40,11 @@ void otaTick() {
   if (validating && millis() - validatingSinceMs >= OTA_VALIDATION_MS) {
     validating = false;
     esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
-    Serial.printf("OTA: image confirmed valid (%s)\n", esp_err_to_name(err));
+    debugLogPrintf("OTA: image confirmed valid (%s)\n", esp_err_to_name(err));
   }
   if (result == OtaResult::Done && rebootAtMs != 0 &&
       (int32_t)(millis() - rebootAtMs) >= 0) {
-    Serial.println("OTA: rebooting into the new firmware...");
+    debugLogPrintln("OTA: rebooting into the new firmware...");
     delay(100);
     ESP.restart();
   }
@@ -81,15 +82,15 @@ void otaUploadStart(const String &md5Hex) {
   bytesWritten = 0;
   if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
     result = OtaResult::BeginFailed;
-    Serial.printf("OTA: begin failed: %s\n", Update.errorString());
+    debugLogPrintf("OTA: begin failed: %s\n", Update.errorString());
     return;
   }
   if (md5Hex.length() == 32) {
     Update.setMD5(md5Hex.c_str());
-    Serial.printf("OTA: MD5 check enabled (%s)\n", md5Hex.c_str());
+    debugLogPrintf("OTA: MD5 check enabled (%s)\n", md5Hex.c_str());
   }
   result = OtaResult::Uploading;
-  Serial.println("OTA: upload started");
+  debugLogPrintln("OTA: upload started");
 }
 
 void otaUploadReject() {
@@ -102,7 +103,7 @@ void otaUploadWrite(uint8_t *data, size_t len) {
   if (written != len) {
     result = OtaResult::WriteFailed;
     Update.abort();
-    Serial.printf("OTA: write failed after %u bytes: %s\n",
+    debugLogPrintf("OTA: write failed after %u bytes: %s\n",
                   (unsigned)bytesWritten, Update.errorString());
     return;
   }
@@ -113,13 +114,13 @@ void otaUploadEnd() {
   if (result != OtaResult::Uploading) return;
   if (!Update.end(true)) {
     result = OtaResult::FinishFailed;
-    Serial.printf("OTA: finish failed after %u bytes: %s\n",
+    debugLogPrintf("OTA: finish failed after %u bytes: %s\n",
                   (unsigned)bytesWritten, Update.errorString());
     return;
   }
   result = OtaResult::Done;
   rebootAtMs = millis() + OTA_REBOOT_DELAY_MS;
-  Serial.printf("OTA: %u bytes written and verified; boot switch set\n",
+  debugLogPrintf("OTA: %u bytes written and verified; boot switch set\n",
                 (unsigned)bytesWritten);
 }
 
@@ -127,5 +128,5 @@ void otaUploadAbort() {
   if (result != OtaResult::Uploading) return;
   Update.abort();
   result = OtaResult::Aborted;
-  Serial.printf("OTA: upload aborted after %u bytes\n", (unsigned)bytesWritten);
+  debugLogPrintf("OTA: upload aborted after %u bytes\n", (unsigned)bytesWritten);
 }

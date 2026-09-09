@@ -5,6 +5,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "debug_log.h"
 #include "ota_update.h"
 #include "web_server.h"
 #include "zigbee_bulbs.h"
@@ -29,10 +30,10 @@ void printHelp() {
 }
 
 void printList() {
-  Serial.printf("%u bulb(s) registered:\n", (unsigned)registryCount());
+  debugLogPrintf("%u bulb(s) registered:\n", (unsigned)registryCount());
   for (size_t i = 0; i < registryCount(); ++i) {
     const Bulb *b = registryGet(i);
-    Serial.printf(" %u. %-20s %s  addr 0x%04x ep %u\n", (unsigned)(i + 1), b->name,
+    debugLogPrintf(" %u. %-20s %s  addr 0x%04x ep %u\n", (unsigned)(i + 1), b->name,
                   b->online ? "online " : "offline", b->shortAddr, b->endpoint);
   }
 }
@@ -40,17 +41,17 @@ void printList() {
 void commandBulb(const String &args, bool on) {
   int n = args.toInt();
   if (n < 1 || n > (int)registryCount()) {
-    Serial.println("Usage: on <index from list>");
+    debugLogPrintln("Usage: on <index from list>");
     return;
   }
   on ? bulbSendOn(registryGet(n - 1)) : bulbSendOff(registryGet(n - 1));
 }
 
 void printStatus() {
-  Serial.printf("Wi-Fi: %s, IP %s, RSSI %d dBm\n",
+  debugLogPrintf("Wi-Fi: %s, IP %s, RSSI %d dBm\n",
                 WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
                 WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  Serial.printf("Bulbs: %u (bound %u), heap %u kB\n", (unsigned)registryCount(),
+  debugLogPrintf("Bulbs: %u (bound %u), heap %u kB\n", (unsigned)registryCount(),
                 (unsigned)zigbeeBoundDeviceCount(), (unsigned)(ESP.getFreeHeap() / 1024));
 }
 
@@ -69,19 +70,19 @@ void handleCommand(const String &line) {
   else if (cmd == "pair") zigbeeOpenPairing(PAIRING_SECONDS);
   else if (cmd == "host") {
     if (!webSetHostname(args)) {
-      Serial.println("Invalid name. Use a-z, 0-9, '-', 1-31 characters.");
+      debugLogPrintln("Invalid name. Use a-z, 0-9, '-', 1-31 characters.");
     }
   } else if (cmd == "status") printStatus();
   else if (cmd == "version") {
-    Serial.printf("Firmware %s, slot %s, %s\n", FW_VERSION, otaRunningSlot(),
+    debugLogPrintf("Firmware %s, slot %s, %s\n", FW_VERSION, otaRunningSlot(),
                   otaPendingVerify() ? "pending verify" : "confirmed");
   }
   else if (cmd == "reboot") ESP.restart();
   else if (cmd == "reset") {
-    Serial.println("Erasing Zigbee NVRAM and restarting...");
+    debugLogPrintln("Erasing Zigbee NVRAM and restarting...");
     Zigbee.factoryReset(true);
   } else if (cmd.length() > 0) {
-    Serial.println("Unknown command. Type 'help'.");
+    debugLogPrintln("Unknown command. Type 'help'.");
   }
 }
 
@@ -89,7 +90,7 @@ void handleCommand(const String &line) {
 
 void serialConsoleBegin() {
   Serial.setTimeout(100);
-  Serial.println("Type 'help' for serial commands.");
+  debugLogPrintln("Type 'help' for serial commands.");
 }
 
 void serialConsoleTick() {

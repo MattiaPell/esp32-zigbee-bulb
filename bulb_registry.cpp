@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "config.h"
+#include "debug_log.h"
 #include "status_led.h"
 
 namespace {
@@ -164,7 +165,7 @@ Bulb *registryAdd(const esp_zb_ieee_addr_t ieee) {
   }
 
   registryFlush();
-  Serial.printf("Registry: added %s (%s)\n", b.name, bulbIeeeHex(&b).c_str());
+  debugLogPrintf("Registry: added %s (%s)\n", b.name, bulbIeeeHex(&b).c_str());
   return &b;
 }
 
@@ -178,7 +179,7 @@ void registryRemove(Bulb *bulb) {
   --bulbCountValue;
   stateDirty = true;
   registryFlush();
-  Serial.printf("Registry: removed entry %u\n", (unsigned)at);
+  debugLogPrintf("Registry: removed entry %u\n", (unsigned)at);
 }
 
 void registryRename(Bulb *bulb, const char *newName) {

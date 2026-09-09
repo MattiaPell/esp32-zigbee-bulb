@@ -6,6 +6,8 @@
 #error "Copy secrets.example.h to secrets.h and enter your Wi-Fi credentials"
 #endif
 
+#include "debug_log.h"
+
 #ifdef MQTT_HOST
 
 #include <Preferences.h>
@@ -441,7 +443,7 @@ void onConnected() {
   for (size_t i = 0; i < registryCount(); ++i) {
     publishDiscovery(registryGet(i));
   }
-  Serial.printf("MQTT: connected to %s:%u\n", MQTT_HOST, (unsigned)MQTT_PORT);
+  debugLogPrintf("MQTT: connected to %s:%u\n", MQTT_HOST, (unsigned)MQTT_PORT);
 }
 
 bool tryConnect() {
@@ -461,7 +463,7 @@ void scheduleReconnect() {
   nextConnectAtMs = millis() + delayMs;
   state = MqttState::Disconnected;
   if (connectAttempts == 1 || (connectAttempts % 10) == 0) {
-    Serial.printf("MQTT: reconnecting in %lu ms (attempt %u)\n",
+    debugLogPrintf("MQTT: reconnecting in %lu ms (attempt %u)\n",
                   (unsigned long)delayMs, connectAttempts);
   }
 }
@@ -491,7 +493,7 @@ void mqttBegin() {
   willTopic = topicFor("/bridge");
 
   if (!runtimeEnabled) state = MqttState::Disconnected;
-  Serial.printf("MQTT: bridge %s (%s:%u)\n", runtimeEnabled ? "enabled" : "disabled",
+  debugLogPrintf("MQTT: bridge %s (%s:%u)\n", runtimeEnabled ? "enabled" : "disabled",
                 MQTT_HOST, (unsigned)MQTT_PORT);
 }
 
@@ -560,10 +562,10 @@ void mqttSetEnabled(bool enabled) {
   if (!enabled) {
     client.stop();
     state = MqttState::Disconnected;
-    Serial.println("MQTT: bridge disabled");
+    debugLogPrintln("MQTT: bridge disabled");
   } else {
     nextConnectAtMs = 0;
-    Serial.println("MQTT: bridge enabled");
+    debugLogPrintln("MQTT: bridge enabled");
   }
 }
 

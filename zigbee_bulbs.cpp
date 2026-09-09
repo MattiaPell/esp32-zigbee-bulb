@@ -6,6 +6,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "debug_log.h"
 #include "remote_controls.h"
 #include "status_led.h"
 #include "web_hooks.h"
@@ -95,7 +96,7 @@ void verifyEnqueue(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr, uint8_t en
       memcpy(verifyQueue[i].ieee, ieee, sizeof(esp_zb_ieee_addr_t));
       verifyQueue[i].shortAddr = shortAddr;
       verifyQueue[i].endpoint = endpoint;
-      Serial.printf("Zigbee: verifying bound device %u ep %u...\n",
+      debugLogPrintf("Zigbee: verifying bound device %u ep %u...\n",
                     endpoint, i);
       return;
     }
@@ -116,7 +117,7 @@ void verifyTick(uint32_t now) {
       if (job.waitingShort) {
         // Previous resolve is still pending; give it another tick.
         if (++job.attempts >= VERIFY_MAX_ATTEMPTS + 2) {
-          Serial.println("Zigbee: verify gave up (no short address)");
+          debugLogPrintln("Zigbee: verify gave up (no short address)");
           job.used = false;
         }
         return;
@@ -151,7 +152,7 @@ void verifyTick(uint32_t now) {
       // Unreachable (likely a sleeping battery device): give up for now,
       // the next binding sync will re-queue it.
       job.used = false;
-      Serial.println("Zigbee: verify gave up (no descriptor response)");
+      debugLogPrintln("Zigbee: verify gave up (no descriptor response)");
       return;
     }
     if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
@@ -189,7 +190,7 @@ void verifyTick(uint32_t now) {
           }
         }
         if (!isLight && !isRemote) {
-          Serial.printf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
+          debugLogPrintf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
                         job->shortAddr, job->endpoint, desc->app_device_id);
         }
       }
@@ -199,7 +200,7 @@ void verifyTick(uint32_t now) {
         if (added != nullptr) {
           if (job->shortAddr != 0xFFFF) added->shortAddr = job->shortAddr;
           if (job->endpoint != 0) added->endpoint = job->endpoint;
-          Serial.println("Zigbee: verified bound device is a light: registered.");
+          debugLogPrintln("Zigbee: verified bound device is a light: registered.");
         }
       } else if (isRemote) {
         remoteEnroll(job->ieee, job->shortAddr, job->endpoint);
@@ -318,7 +319,7 @@ void onBulbDefaultResponse(zb_cmd_type_t respToCmd, esp_zb_zcl_status_t status) 
   if (b == nullptr) return;
   if (b->cmdFailed < 0xFFFF) ++b->cmdFailed;
   b->lastFailStatus = (uint8_t)status;
-  Serial.printf("Zigbee: %s command %u failed (status %d: %s)\n", b->name,
+  debugLogPrintf("Zigbee: %s command %u failed (status %d: %s)\n", b->name,
                 (unsigned)respToCmd, (int)status,
                 esp_zb_zcl_status_to_name(status));
 }
@@ -484,7 +485,7 @@ void syncRegistryWithBindings() {
       if (notify) {
         webHookEvent("bulb_offline", bulbIeeeHex(b).c_str(), b->name);
       }
-      Serial.printf("Zigbee: %s not in binding table (offline)\n", b->name);
+      debugLogPrintf("Zigbee: %s not in binding table (offline)\n", b->name);
     }
   }
   firstSyncDone = true;
@@ -510,11 +511,11 @@ void resolveNextBulbShortAddress() {
       req.request_type = 0;  // Single device response.
       req.start_index = 0;
       if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
-      Serial.printf("Zigbee: resolving short address for %s...\n", b->name);
+      debugLogPrintf("Zigbee: resolving short address for %s...\n", b->name);
       esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
                                        esp_zb_zdo_nwk_addr_rsp_t *resp, void *) {
         if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) {
-          Serial.printf("Zigbee: short address resolve failed (status %d)\n",
+          debugLogPrintf("Zigbee: short address resolve failed (status %d)\n",
                         (int)status);
           return;
         }
@@ -522,7 +523,7 @@ void resolveNextBulbShortAddress() {
         if (found != nullptr && resp->nwk_addr != 0xFFFF &&
             found->shortAddr != resp->nwk_addr) {
           found->shortAddr = resp->nwk_addr;
-          Serial.printf("Zigbee: %s short address 0x%04x\n", found->name,
+          debugLogPrintf("Zigbee: %s short address 0x%04x\n", found->name,
                         resp->nwk_addr);
           armBootResend();
         }
@@ -547,18 +548,18 @@ void resolveNextUnknownSource() {
   req.request_type = 0;
   req.start_index = 0;
   if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
-  Serial.printf("Zigbee: resolving IEEE for source 0x%04x...\n", shortAddr);
+  debugLogPrintf("Zigbee: resolving IEEE for source 0x%04x...\n", shortAddr);
   esp_zb_zdo_ieee_addr_req(&req, [](esp_zb_zdp_status_t status,
                                     esp_zb_zdo_ieee_addr_rsp_t *resp, void *) {
     if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) {
-      Serial.printf("Zigbee: IEEE resolve failed (status %d)\n", (int)status);
+      debugLogPrintf("Zigbee: IEEE resolve failed (status %d)\n", (int)status);
       return;
     }
     Bulb *found = bulbByIeeeFromResponse(resp->ieee_addr);
     if (found != nullptr) {
       if (found->shortAddr != resp->nwk_addr) {
         found->shortAddr = resp->nwk_addr;
-        Serial.printf("Zigbee: %s remapped to 0x%04x\n", found->name,
+        debugLogPrintf("Zigbee: %s remapped to 0x%04x\n", found->name,
                       resp->nwk_addr);
         armBootResend();
       }
@@ -609,7 +610,7 @@ void zigbeeBegin() {
   esp_coex_wifi_i154_enable();  // Wi-Fi + 802.15.4 coexistence (ESP32-C6).
 
   if (!Zigbee.begin(ZIGBEE_COORDINATOR)) {
-    Serial.println("Zigbee failed to start. Restarting...");
+    debugLogPrintln("Zigbee failed to start. Restarting...");
     statusLedSetMode(StatusLedMode::Error);
     const uint32_t errorStarted = millis();
     while (millis() - errorStarted < 2000) {
@@ -618,7 +619,7 @@ void zigbeeBegin() {
     }
     ESP.restart();
   }
-  Serial.println("Zigbee coordinator started.");
+  debugLogPrintln("Zigbee coordinator started.");
 
   remoteAttach(bulbEP);  // Intercept remote/steering device commands.
 }
@@ -627,7 +628,7 @@ void zigbeeOpenPairing(uint8_t seconds) {
   Zigbee.openNetwork(seconds);
   pairingOpenedAtMs = millis();
   pairingSeconds = seconds;
-  Serial.printf("Pairing open for %u seconds.\n", seconds);
+  debugLogPrintf("Pairing open for %u seconds.\n", seconds);
 }
 
 bool zigbeePairingActive() {
@@ -735,7 +736,7 @@ void zigbeeTick() {
     }
     if (resendIndex >= registryCount()) {
       resendPending = false;
-      Serial.println("Zigbee: stored states resent after boot.");
+      debugLogPrintln("Zigbee: stored states resent after boot.");
     }
   }
 
@@ -748,7 +749,7 @@ void zigbeeTick() {
       readbackIndex = (readbackIndex + 1) % registryCount();
       Bulb *b = registryGet(readbackIndex);
       if (b != nullptr && bulbReady(b)) {
-        Serial.printf("Readback -> %s 0x%04x ep %u\n", b->name, b->shortAddr, b->endpoint);
+        debugLogPrintf("Readback -> %s 0x%04x ep %u\n", b->name, b->shortAddr, b->endpoint);
         bulbEP.getLightState(b->endpoint, b->shortAddr);
         bulbEP.getLightLevel(b->endpoint, b->shortAddr);
         bulbEP.getLightColor(b->endpoint, b->shortAddr);
@@ -827,7 +828,7 @@ void zigbeeRequestMembers() {
     esp_err_t err = esp_zb_nwk_get_next_neighbor(&it, &info);
     if (err != ESP_OK) {
       if (n == 0) {
-        Serial.printf("Neighbor table read: err=%d (table empty or not supported)\n", err);
+        debugLogPrintf("Neighbor table read: err=%d (table empty or not supported)\n", err);
       }
       break;
     }
@@ -851,7 +852,7 @@ void zigbeeRequestMembers() {
     ++n;
   }
   memberCount = n;
-  Serial.printf("Network members refreshed: %u\n", (unsigned)n);
+  debugLogPrintf("Network members refreshed: %u\n", (unsigned)n);
 }
 
 size_t zigbeeMemberSnapshot(DeviceInfo *out, size_t cap) {
@@ -880,7 +881,7 @@ int bulbSendAllOn() {
       if (bulbReady(b)) b->state.power = true;  // Each resumes its own state.
     }
     registryMarkDirty();
-    Serial.println("All bulbs on (group frame).");
+    debugLogPrintln("All bulbs on (group frame).");
     return (int)readyBulbCount();
   }
   int applied = 0;
@@ -900,7 +901,7 @@ int bulbSendAllOff() {
       registryGet(i)->state.power = false;  // Keep stored state honest.
     }
     registryFlush();
-    Serial.println("Kill switch: all bulbs off (group frame).");
+    debugLogPrintln("Kill switch: all bulbs off (group frame).");
     return (int)readyBulbCount();
   }
   int applied = 0;
@@ -929,7 +930,7 @@ int bulbSendAllBrightness(uint8_t pct, uint16_t transitionDs) {
       }
     }
     registryMarkDirty();
-    Serial.printf("All bulbs to %u %% (group frame).\n", pct);
+    debugLogPrintf("All bulbs to %u %% (group frame).\n", pct);
     return (int)readyBulbCount();
   }
   int applied = 0;
@@ -954,7 +955,7 @@ int bulbSendAllKelvin(int kelvin, uint16_t transitionDs) {
       }
     }
     registryMarkDirty();
-    Serial.printf("All bulbs to %d K (group frame).\n", clamped);
+    debugLogPrintf("All bulbs to %d K (group frame).\n", clamped);
     return (int)readyBulbCount();
   }
   int applied = 0;
@@ -980,7 +981,7 @@ int bulbSendAllRgb(uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs) {
       }
     }
     registryMarkDirty();
-    Serial.println("All bulbs to RGB (group frame).");
+    debugLogPrintln("All bulbs to RGB (group frame).");
     return (int)readyBulbCount();
   }
   int applied = 0;

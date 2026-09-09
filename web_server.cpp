@@ -14,6 +14,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "config_backup.h"
+#include "debug_log.h"
 #include "json_lite.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
@@ -127,7 +128,7 @@ Bulb *bulbByApiId(const String &id) {
 }
 
 void handleLightPatch(const String &id) {
-  Serial.printf("PATCH %s <- %s\n", id.c_str(), server.arg("plain").c_str());
+  debugLogPrintf("PATCH %s <- %s\n", id.c_str(), server.arg("plain").c_str());
   Bulb *b = bulbByApiId(id);
   if (b == nullptr) {
     sendJsonError(404, "unknown light id");
@@ -300,6 +301,47 @@ void handleDevicesGet() {
   }
   j += "]";
   sendJson(200, j);
+}
+
+// --- Debug log (RAM ring buffer, tab "Log" in the web UI) ---------------------
+
+void handleLogsGet() {
+  long since = 0;
+  if (server.hasArg("since")) since = server.arg("since").toInt();
+  if (since < 0) since = 0;
+  static DebugLogLine rows[24];  // Slice per request; the client pages ?since=.
+  uint32_t first = 0;
+  const size_t n = debugLogSince((uint32_t)since, rows, 24, &first);
+  String j;
+  j.reserve(n * 96 + 48);
+  j += "{\"first\":";
+  j += first;
+  j += ",\"lines\":[";
+  for (size_t i = 0; i < n; ++i) {
+    if (i) j += ",";
+    j += "{\"i\":";
+    j += rows[i].index;
+    j += ",\"t\":";
+    j += rows[i].ms;
+    j += ",\"m\":\"";
+    for (const char *p = rows[i].text; *p; ++p) {
+      const char c = *p;
+      if (c == '"' || c == '\\') {
+        j += '\\';
+        j += c;
+      } else if ((uint8_t)c >= 32) {
+        j += c;
+      }
+    }
+    j += "\"}";
+  }
+  j += "]}";
+  sendJson(200, j);
+}
+
+void handleLogsDelete() {
+  debugLogClear();
+  sendJson(200, "{\"cleared\":true}");
 }
 
 void handleStatusGet() {  String j;
@@ -779,6 +821,14 @@ void dispatch() {
       return;
     }
   }
+  if (uri == "/api/logs" && method == HTTP_GET) {
+    handleLogsGet();
+    return;
+  }
+  if (uri == "/api/logs" && method == HTTP_DELETE) {
+    handleLogsDelete();
+    return;
+  }
   if (uri == "/api/pairing") {
     if (method == HTTP_POST) {
       handlePairingPost();
@@ -878,14 +928,14 @@ bool webSetHostname(const String &name) {
     MDNS.end();
     mdnsUp = false;
   }
-  Serial.printf("Hostname set to %s.local\n", hostnameValue.c_str());
+  debugLogPrintf("Hostname set to %s.local\n", hostnameValue.c_str());
   return true;
 }
 
 void webBegin() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.printf("Wi-Fi: connecting to %s", WIFI_SSID);
+  debugLogPrintf("Wi-Fi: connecting to %s", WIFI_SSID);
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
     delay(250);
@@ -893,10 +943,9 @@ void webBegin() {
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("Wi-Fi connected. IP: ");
-    Serial.println(WiFi.localIP());
+    debugLogPrintf("Wi-Fi connected. IP: %s\n", WiFi.localIP().toString().c_str());
   } else {
-    Serial.println("Wi-Fi not connected yet; will keep retrying.");
+    debugLogPrintln("Wi-Fi not connected yet; will keep retrying.");
   }
 
   webPrefs.begin(PREFS_NAMESPACE, false);
@@ -915,7 +964,7 @@ void webTick() {
   if (WiFi.status() != WL_CONNECTED) {
     if (millis() - lastWifiRetryMs >= WIFI_RETRY_MS) {
       lastWifiRetryMs = millis();
-      Serial.println("Wi-Fi: retrying...");
+      debugLogPrintln("Wi-Fi: retrying...");
       WiFi.reconnect();
     }
     if (mdnsUp) {
@@ -928,6 +977,6 @@ void webTick() {
   if (!mdnsUp && MDNS.begin(hostnameValue.c_str())) {
     MDNS.addService("http", "tcp", WEB_PORT);
     mdnsUp = true;
-    Serial.printf("mDNS: http://%s.local/\n", hostnameValue.c_str());
+    debugLogPrintf("mDNS: http://%s.local/\n", hostnameValue.c_str());
   }
 }

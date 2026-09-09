@@ -50,6 +50,7 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .chip button.del:hover{color:var(--bad)}
 button.small{padding:5px 12px;font-size:13px}
 .tmrleft{color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums}
+.logbox{font:11px/1.5 ui-monospace,Consolas,monospace;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px;height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:var(--txt);margin-top:8px}
 .tmr{background:none;border:none;color:var(--mut);padding:2px 6px;border-radius:8px;font-size:14px;margin-left:auto}
 .tmr:hover{color:var(--acc);background:var(--card2)}
 .trow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
@@ -139,6 +140,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <button class="tab sel" data-t="gen">Generale</button>
   <button class="tab" data-t="net">Rete</button>
   <button class="tab" data-t="diag">Diagnostica</button>
+  <button class="tab" data-t="log">Log</button>
   <button class="tab" data-t="rem">Telecomandi</button>
   <button class="tab" data-t="fw">Firmware</button>
  </div>
@@ -149,6 +151,15 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
  </div>
  <div id="t-net" hidden><div class="kv" id="devList"></div></div>
  <div id="t-diag" hidden><div class="kv" id="diagList"></div></div>
+ <div id="t-log" hidden>
+  <div class="drow" style="justify-content:flex-start">
+   <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="logLive" checked> Live</label>
+   <button id="logClear" class="small">Pulisci</button>
+   <span class="kv" id="logStat"></span>
+  </div>
+  <div id="logBox" class="logbox"></div>
+  <div class="kv" style="margin-top:6px">Registro eventi in RAM (ultime 100 righe, si azzera al riavvio): pairing, comandi Zigbee, OTA, MQTT e webhook.</div>
+ </div>
  <div id="t-rem" hidden>
   <div id="remList"></div>
   <div class="kv" style="margin:8px 0 4px"><b>Mappa azioni</b> (globale, valida per tutti i telecomandi)</div>
@@ -423,7 +434,7 @@ function countdown(s){
 // --- Settings dialog (tabbed) ------------------------------------------------
 function switchTab(t){
  document.querySelectorAll('#cfg .tab').forEach(b=>b.classList.toggle('sel',b.dataset.t===t));
- for(const k of ['gen','net','diag','rem','fw'])$('t-'+k).hidden=k!==t;
+  for(const k of ['gen','net','diag','log','rem','fw'])$('t-'+k).hidden=k!==t;
 }
 document.querySelectorAll('#cfg .tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
 $('cfgClose').onclick=()=>$('cfg').close();
@@ -545,6 +556,35 @@ $('otaGo').onclick=()=>{
  x.send(fd);
 };
 
+// --- Debug log tab ------------------------------------------------------------
+let logSince=0;
+const logTs=ms=>{const s=Math.floor(ms/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+async function pollLog(){
+ if($('t-log').hidden||!$('logLive').checked)return;
+ try{
+  const box=$('logBox');
+  for(let guard=0;guard<8;guard++){
+   const j=await api('/api/logs?since='+logSince);
+   if(!j.lines.length)break;
+   const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-30;
+   for(const l of j.lines){
+    const d=document.createElement('div');
+    d.textContent=logTs(l.t)+'  '+l.m;
+    box.appendChild(d);
+    logSince=l.i;
+   }
+   if(stick)box.scrollTop=box.scrollHeight;
+   $('logStat').textContent=j.lines.length+' righe nuove';
+   if(j.lines.length<24)break;
+  }
+ }catch(e){}
+}
+$('logClear').onclick=async()=>{
+ logSince=0;$('logBox').textContent='';$('logStat').textContent='';
+ await api('/api/logs',{method:'DELETE'});
+};
+setInterval(pollLog,2000);
+
 $('statusLine').onclick=()=>$('setBtn').onclick();
 
 load();
@@ -577,7 +617,7 @@ static const char MANIFEST_JSON[] PROGMEM = R"rawliteral({
 // Network-first service worker: keeps the UI always fresh, makes the app
 // installable and caches the static shell as a fallback. Bump V when the
 // page changes so installed PWAs pick up the new shell.
-static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v2';
+static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v3';
 const SHELL=['/','/icon-192.png','/icon-512.png','/manifest.json'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});

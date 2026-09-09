@@ -22,6 +22,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "debug_log.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
 #include "ota_update.h"
@@ -67,6 +68,7 @@ void updateStatusLed() {
 void setup() {
   Serial.begin(115200);
   serialConsoleBegin();
+  debugLogBegin();  // Boot marker for the web UI log tab.
 
   statusLedBegin();
   statusLedSetMode(StatusLedMode::WifiConnecting);
@@ -87,7 +89,7 @@ void setup() {
 
   otaBegin();  // Arms the pending-verify confirmation window if just OTA'd.
 
-  Serial.println("Ready. Web UI: see the IP printed above, or bulb.local");
+  debugLogPrintln("Ready. Web UI: see the IP printed above, or bulb.local");
 }
 
 void loop() {

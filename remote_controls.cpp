@@ -5,6 +5,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "debug_log.h"
 #include "json_lite.h"
 #include "scenes.h"
 #include "web_hooks.h"
@@ -203,7 +204,7 @@ void resolveNextRemote() {
           break;
         }
       }
-      Serial.printf("Remote: registered %s (%s)\n", match->name,
+      debugLogPrintf("Remote: registered %s (%s)\n", match->name,
                     ieeeHexOf(match->ieee).c_str());
     }, nullptr);
     esp_zb_lock_release();
@@ -325,7 +326,7 @@ void onRemotePrivilegeCommand(const esp_zb_zcl_privilege_command_message_t *mess
     // First sight: reserve a slot; the IEEE is resolved by remotesTick.
     r = freeSlot();
     if (r == nullptr) {
-      Serial.printf("Remote: no free slot for 0x%04x (press ignored)\n",
+      debugLogPrintf("Remote: no free slot for 0x%04x (press ignored)\n",
                     info.src_address.u.short_addr);
       return;
     }
@@ -335,7 +336,7 @@ void onRemotePrivilegeCommand(const esp_zb_zcl_privilege_command_message_t *mess
     r->endpoint = info.src_endpoint;
     snprintf(r->name, sizeof(r->name), "Remote %u",
              (unsigned)(r - remotes + 1));
-    Serial.printf("Remote: new steering device 0x%04x, resolving IEEE...\n",
+    debugLogPrintf("Remote: new steering device 0x%04x, resolving IEEE...\n",
                   r->shortAddr);
   }
   r->shortAddr = info.src_address.u.short_addr;
@@ -346,12 +347,12 @@ void onRemotePrivilegeCommand(const esp_zb_zcl_privilege_command_message_t *mess
       normalizeEvent(info.cluster, info.command.id, (const uint8_t *)message->data,
                      message->size);
   if (ev == EV_COUNT) {
-    Serial.printf("Remote: unknown command 0x%04x/0x%02x from 0x%04x\n",
+    debugLogPrintf("Remote: unknown command 0x%04x/0x%02x from 0x%04x\n",
                   info.cluster, info.command.id, info.src_address.u.short_addr);
     return;
   }
   strlcpy(r->lastEvent, eventName(ev), sizeof(r->lastEvent));
-  Serial.printf("Remote: %s -> %s\n", r->name, eventName(ev));
+  debugLogPrintf("Remote: %s -> %s\n", r->name, eventName(ev));
 
   if (ev == EV_SCENE) {
     recallSceneById((const uint8_t *)message->data, message->size);
@@ -373,7 +374,7 @@ void onRemoteCustomCommand(const esp_zb_zcl_custom_cluster_command_message_t *me
   if (message == nullptr || message->info.status != ESP_ZB_ZCL_STATUS_SUCCESS) return;
   // Catch-all diagnostics: anything not covered by the privilege set lands
   // here, which makes unknown remotes visible in the serial log.
-  Serial.printf("Remote: custom command cluster 0x%04x cmd 0x%02x from 0x%04x\n",
+  debugLogPrintf("Remote: custom command cluster 0x%04x cmd 0x%02x from 0x%04x\n",
                 message->info.cluster, message->info.command.id,
                 message->info.src_address.u.short_addr);
 }
@@ -447,7 +448,7 @@ bool remoteEnroll(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr,
   if (r == nullptr) {
     r = freeSlot();
     if (r == nullptr) {
-      Serial.println("Remote: registry full, steering device ignored");
+      debugLogPrintln("Remote: registry full, steering device ignored");
       return false;
     }
     *r = Remote();
@@ -542,7 +543,7 @@ bool remoteRemove(const String &id) {
     prefs.remove((key + "n").c_str());
     remotes[i] = Remote();
     persistCount();
-    Serial.printf("Remote: forgot %s\n", id.c_str());
+    debugLogPrintf("Remote: forgot %s\n", id.c_str());
     return true;
   }
   return false;
