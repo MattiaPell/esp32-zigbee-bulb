@@ -13,8 +13,13 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "config_backup.h"
+#include "json_lite.h"
 #include "light_timers.h"
+#include "mqtt_bridge.h"
+#include "ota_update.h"
 #include "scenes.h"
+#include "web_hooks.h"
 #include "web_icons.h"
 #include "web_page.h"
 #include "zigbee_bulbs.h"
@@ -24,13 +29,16 @@ namespace {
 WebServer server(WEB_PORT);
 bool mdnsUp = false;
 uint32_t lastWifiRetryMs = 0;
-const char *FW_VERSION = "1.0.0";
+
+// Headers kept for the OTA endpoint (optional MD5 checksum and, if set in
+// secrets.h, the upload token).
+const char *OTA_HEADERS[] = {"X-OTA-MD5", "X-OTA-TOKEN"};
 
 Preferences webPrefs;
 
 String hostnameValue = DEFAULT_HOSTNAME;
 
-// --- JSON helpers (targeted: the API speaks only this dialect) --------------
+// --- JSON helpers live in json_lite.h (shared with MQTT and backup) ---------
 
 void sendJson(int code, const String &payload) {
   server.send(code, "application/json", payload);
@@ -40,64 +48,30 @@ void sendJsonError(int code, const char *message) {
   server.send(code, "application/json", String("{\"error\":\"") + message + "\"}");
 }
 
-size_t findJsonKey(const String &body, const char *key) {
-  // Find "key", skip whitespace, expect ':'; tolerant to spaced-out JSON.
-  String needle = "\"";
-  needle += key;
-  needle += "\"";
-  int at = body.indexOf(needle);
-  if (at < 0) return (size_t)-1;
-  size_t pos = at + needle.length();
-  while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
-  if (pos >= body.length() || body[pos] != ':') return (size_t)-1;
-  ++pos;
-  while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
-  return pos;
-}
-
-bool jsonGetBool(const String &body, const char *key, bool &out) {
-  size_t at = findJsonKey(body, key);
-  if (at == (size_t)-1) return false;
-  if (body.indexOf("true", at) == (int)at) {
-    out = true;
-    return true;
-  }
-  if (body.indexOf("false", at) == (int)at) {
-    out = false;
-    return true;
-  }
-  return false;
-}
-
-bool jsonGetInt(const String &body, const char *key, long &out) {
-  size_t at = findJsonKey(body, key);
-  if (at == (size_t)-1) return false;
-  size_t start = at, end = at;
-  const char *s = body.c_str();
-  if (s[start] == '-') ++end;
-  while (end < body.length() && s[end] >= '0' && s[end] <= '9') ++end;
-  if (end == start || (end == start + 1 && s[start] == '-')) return false;
-  out = body.substring(start, end).toInt();
-  return true;
-}
-
-bool jsonGetString(const String &body, const char *key, String &out) {
-  size_t at = findJsonKey(body, key);
-  if (at == (size_t)-1 || at >= body.length() || body[at] != '"') return false;
-  ++at;
-  String value;
-  while (at < body.length() && body[at] != '"') {
-    if (body[at] == '\\' && at + 1 < body.length()) ++at;  // Skip escapes.
-    value += body[at];
-    ++at;
-  }
-  out = value;
-  return true;
-}
-
 // --- Response builders -------------------------------------------------------
 
-String lightJson(const Bulb *b) {
+String lightDebugJson(const Bulb *b) {
+  String j;
+  j.reserve(160);
+  j += "{\"lqi\":";
+  j += b->lqi;
+  j += ",\"rssi\":";
+  j += b->rssi;
+  j += ",\"last_seen_s\":";
+  j += b->lastSeenMs == 0 ? -1 : (long)((millis() - b->lastSeenMs) / 1000);
+  j += ",\"cmd_sent\":";
+  j += b->cmdSent;
+  j += ",\"cmd_failed\":";
+  j += b->cmdFailed;
+  j += ",\"last_fail\":\"";
+  j += b->lastFailStatus == 0xFF
+           ? "none"
+           : esp_zb_zcl_status_to_name((esp_zb_zcl_status_t)b->lastFailStatus);
+  j += "\"}";
+  return j;
+}
+
+String lightJson(const Bulb *b, bool withDebug = false) {
   String j;
   j.reserve(220);
   j += "{\"id\":\"";
@@ -124,15 +98,21 @@ String lightJson(const Bulb *b) {
   j += b->endpoint;
   j += ",\"short_addr\":\"0x";
   j += String(b->shortAddr, HEX);
-  j += "\"}";
+  j += "\"";
+  if (withDebug) {
+    j += ",\"debug\":";
+    j += lightDebugJson(b);
+  }
+  j += "}";
   return j;
 }
 
 void handleLightsGet() {
+  const bool debug = server.hasArg("debug");
   String j = "[";
   for (size_t i = 0; i < registryCount(); ++i) {
     if (i > 0) j += ",";
-    j += lightJson(registryGet(i));
+    j += lightJson(registryGet(i), debug);
   }
   j += "]";
   sendJson(200, j);
@@ -241,6 +221,32 @@ void handleLightDelete(const String &id) {
   sendJson(200, "{\"ok\":true}");
 }
 
+void handleLightDebugGet(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  String j;
+  j.reserve(280);
+  j += "{\"id\":\"";
+  j += bulbIeeeHex(b);
+  j += "\",\"name\":\"";
+  j += b->name;
+  j += "\",\"online\":";
+  j += b->online ? "true" : "false";
+  j += ",\"ready\":";
+  j += bulbReady(b) ? "true" : "false";
+  j += ",\"endpoint\":";
+  j += b->endpoint;
+  j += ",\"short_addr\":\"0x";
+  j += String(b->shortAddr, HEX);
+  j += "\",\"debug\":";
+  j += lightDebugJson(b);
+  j += "}";
+  sendJson(200, j);
+}
+
 void handlePairingPost() {
   const String body = server.arg("plain");
   long seconds = PAIRING_SECONDS;
@@ -317,26 +323,113 @@ void handleStatusGet() {  String j;
   j += zigbeePairingActive() ? "true" : "false";
   j += ",\"timer_all\":";
   j += bulbTimerRemainingAll();
+  j += ",\"ota\":{\"slot\":\"";
+  j += otaRunningSlot();
+  j += "\",\"pending_verify\":";
+  j += otaPendingVerify() ? "true" : "false";
   j += "}";
   sendJson(200, j);
+}
+
+// --- OTA firmware upload ------------------------------------------------------
+
+// Multipart upload streaming: the file part is piped into the ota_update
+// state machine. WebServer is single-threaded, so while the upload is being
+// parsed no other request reaches dispatch().
+void handleOtaUpload() {
+  HTTPUpload &upload = server.upload();
+  switch (upload.status) {
+    case UPLOAD_FILE_START: {
+      bool allowed = true;
+#ifdef OTA_TOKEN
+      allowed = server.header("X-OTA-TOKEN").equals(OTA_TOKEN);
+#endif
+      if (allowed) {
+        otaUploadStart(server.header("X-OTA-MD5"));
+      } else {
+        otaUploadReject();
+      }
+      break;
+    }
+    case UPLOAD_FILE_WRITE:
+      otaUploadWrite(upload.buf, upload.currentSize);
+      break;
+    case UPLOAD_FILE_END:
+      otaUploadEnd();
+      break;
+    case UPLOAD_FILE_ABORTED:
+      otaUploadAbort();
+      break;
+  }
+}
+
+void handleOtaPost() {
+  switch (otaResult()) {
+    case OtaResult::Done:
+      // otaTick() reboots shortly after this response reaches the client.
+      sendJson(200, String("{\"ok\":true,\"size\":") + otaBytesWritten() + "}");
+      return;
+    case OtaResult::Rejected:
+      sendJsonError(403, "ota token missing or wrong");
+      return;
+    case OtaResult::BeginFailed:
+      sendJsonError(500, "ota begin failed (no free slot)");
+      return;
+    case OtaResult::WriteFailed:
+      sendJsonError(500, "ota write failed (image too large?)");
+      return;
+    case OtaResult::FinishFailed:
+      sendJsonError(400, "ota finish failed (corrupt image or md5 mismatch)");
+      return;
+    case OtaResult::Aborted:
+      sendJsonError(400, "upload aborted");
+      return;
+    default:
+      sendJsonError(400, "no firmware data");
+  }
 }
 
 // --- Scenes ------------------------------------------------------------------
 
 void handleLightsAllPatch() {
   const String body = server.arg("plain");
-  bool on;
-  if (!jsonGetBool(body, "on", on)) {
-    sendJsonError(400, "missing on");
+  bool on = false;
+  long brightness = 0, kelvin = 0;
+  String rgbHex;
+  const bool hasOn = jsonGetBool(body, "on", on);
+  const bool hasBrightness = jsonGetInt(body, "brightness", brightness);
+  const bool hasKelvin = jsonGetInt(body, "kelvin", kelvin);
+  const bool hasRgb = jsonGetString(body, "rgb_hex", rgbHex);
+  if (!hasOn && !hasBrightness && !hasKelvin && !hasRgb) {
+    sendJsonError(400, "no recognized fields (on, brightness, kelvin, rgb_hex)");
     return;
   }
+
+  if (hasOn && !on) {
+    sendJson(200, "{\"applied\":" + String(bulbSendAllOff()) + "}");
+    return;
+  }
+
   int applied = 0;
-  for (size_t i = 0; i < registryCount(); ++i) {
-    Bulb *b = registryGet(i);
-    if (!bulbReady(b)) continue;
-    if (on) bulbSendOn(b);
-    else bulbSendOff(b);
-    ++applied;
+  if (hasOn && on) applied = bulbSendAllOn();
+  if (hasBrightness) {
+    applied = bulbSendAllBrightness((uint8_t)constrain(brightness, 0, 100),
+                                    DEFAULT_TRANSITION_DS);
+  }
+  if (hasKelvin) {
+    applied = bulbSendAllKelvin((int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN),
+                                DEFAULT_TRANSITION_DS);
+  }
+  if (hasRgb) {
+    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
+    unsigned r = 0, g = 0, bl = 0;
+    if (rgbHex.length() != 6 ||
+        sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) != 3) {
+      sendJsonError(400, "invalid rgb_hex");
+      return;
+    }
+    applied = bulbSendAllRgb((uint8_t)r, (uint8_t)g, (uint8_t)bl,
+                             DEFAULT_TRANSITION_DS);
   }
   sendJson(200, "{\"applied\":" + String(applied) + "}");
 }
@@ -408,6 +501,108 @@ void handleSceneDelete(const String &nameIn) {
   }
   sceneDelete(name);
   sendJson(200, "{\"ok\":true}");
+}
+
+// --- Webhooks -----------------------------------------------------------------
+
+void handleHooksGet() {
+  String j = "{\"urls\":[";
+  for (size_t i = 0; i < webHookUrlCount(); ++i) {
+    if (i > 0) j += ",";
+    j += "\"";
+    j += webHookUrlAt(i);
+    j += "\"";
+  }
+  j += "]}";
+  sendJson(200, j);
+}
+
+void handleHooksPost() {
+  const String body = server.arg("plain");
+  String url;
+  if (!jsonGetString(body, "url", url) || !webHookUrlAdd(url)) {
+    sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
+    return;
+  }
+  sendJson(201, "{\"ok\":true}");
+}
+
+void handleHooksDelete() {
+  const String body = server.arg("plain");
+  String url;
+  if (!jsonGetString(body, "url", url) || !webHookUrlRemove(url)) {
+    sendJsonError(404, "unknown url");
+    return;
+  }
+  sendJson(200, "{\"ok\":true}");
+}
+
+void handleHookTestPost() {
+  const String body = server.arg("plain");
+  String url;
+  if (!jsonGetString(body, "url", url) || !webHookTest(url)) {
+    sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
+    return;
+  }
+  sendJson(200, "{\"queued\":true}");
+}
+
+// --- MQTT bridge --------------------------------------------------------------
+
+String mqttStatusJson() {
+  String j = "{\"enabled\":";
+  j += mqttEnabledRuntime() ? "true" : "false";
+  j += ",\"connected\":";
+  j += mqttConnected() ? "true" : "false";
+  j += ",\"host\":\"";
+#ifdef MQTT_HOST
+  j += MQTT_HOST;
+  j += "\",\"port\":";
+  j += MQTT_PORT;
+#else
+  j += "\",\"port\":0";
+#endif
+  j += "}";
+  return j;
+}
+
+#ifdef MQTT_HOST
+
+void handleMqttGet() {
+  sendJson(200, mqttStatusJson());
+}
+
+void handleMqttPost() {
+  const String body = server.arg("plain");
+  bool enabled;
+  if (!jsonGetBool(body, "enabled", enabled)) {
+    sendJsonError(400, "missing enabled");
+    return;
+  }
+  mqttSetEnabled(enabled);
+  sendJson(200, mqttStatusJson());
+}
+
+#endif  // MQTT_HOST
+
+// --- Backup / restore ------------------------------------------------------------
+
+void handleBackupGet() {
+  sendJson(200, configBackupJson());
+}
+
+void handleRestorePost() {
+  const String body = server.arg("plain");
+  if (body.length() > 12288) {
+    sendJsonError(400, "body too large");
+    return;
+  }
+  String summary;
+  if (!configRestoreJson(body, summary)) {
+    sendJsonError(400, "not a valid backup document");
+    return;
+  }
+  sendJson(200, "{\"ok\":true,\"restored\":" + summary + "}");
 }
 
 // --- Timers ------------------------------------------------------------------
@@ -507,6 +702,10 @@ void dispatch() {
       handleLightTimerPost(rest.substring(0, rest.length() - 6));
       return;
     }
+    if (rest.endsWith("/debug") && method == HTTP_GET) {
+      handleLightDebugGet(rest.substring(0, rest.length() - 6));
+      return;
+    }
     if (method == HTTP_PATCH) {
       handleLightPatch(rest);
       return;
@@ -566,6 +765,42 @@ void dispatch() {
     handleHostnamePost();
     return;
   }
+  if (uri == "/api/hooks" && method == HTTP_GET) {
+    handleHooksGet();
+    return;
+  }
+  if (uri == "/api/hooks" && method == HTTP_POST) {
+    handleHooksPost();
+    return;
+  }
+  if (uri == "/api/hooks" && method == HTTP_DELETE) {
+    handleHooksDelete();
+    return;
+  }
+  if (uri == "/api/hooks/test" && method == HTTP_POST) {
+    handleHookTestPost();
+    return;
+  }
+#ifdef MQTT_HOST
+  if (uri == "/api/mqtt") {
+    if (method == HTTP_GET) {
+      handleMqttGet();
+      return;
+    }
+    if (method == HTTP_POST) {
+      handleMqttPost();
+      return;
+    }
+  }
+#endif
+  if (uri == "/api/backup" && method == HTTP_GET) {
+    handleBackupGet();
+    return;
+  }
+  if (uri == "/api/restore" && method == HTTP_POST) {
+    handleRestorePost();
+    return;
+  }
   sendJsonError(404, "not found");
 }
 
@@ -607,6 +842,8 @@ void webBegin() {
   hostnameValue = webPrefs.getString("host", DEFAULT_HOSTNAME);
   webPrefs.end();
 
+  server.on("/api/ota", HTTP_POST, handleOtaPost, handleOtaUpload);
+  server.collectHeaders(OTA_HEADERS, sizeof(OTA_HEADERS) / sizeof(OTA_HEADERS[0]));
   server.onNotFound(dispatch);
   server.begin();
 }

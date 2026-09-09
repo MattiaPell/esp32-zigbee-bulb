@@ -23,10 +23,13 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "light_timers.h"
+#include "mqtt_bridge.h"
+#include "ota_update.h"
 #include "power_button.h"
 #include "scenes.h"
 #include "serial_console.h"
 #include "status_led.h"
+#include "web_hooks.h"
 #include "web_server.h"
 #include "zigbee_bulbs.h"
 
@@ -39,6 +42,10 @@ void onKillSwitch() {
 
 // Drives the onboard LED from the current system state.
 void updateStatusLed() {
+  if (otaUploading()) {
+    statusLedSetMode(StatusLedMode::Error);  // Fast red during firmware upload.
+    return;
+  }
   if (WiFi.status() != WL_CONNECTED) {
     statusLedSetMode(StatusLedMode::WifiConnecting);
     return;
@@ -69,20 +76,38 @@ void setup() {
   powerButtonBegin(onKillSwitch);
 
   webBegin();
+  webHooksBegin();  // Loads webhook URLs; a "boot" event announces startup.
+  webHookEvent("boot", "", "", "");
+  mqttBegin();  // No-op unless MQTT_HOST is defined in secrets.h.
 
   statusLedSetMode(StatusLedMode::ZigbeeStarting);
   zigbeeBegin();  // Restarts the board if the stack cannot start.
+
+  otaBegin();  // Arms the pending-verify confirmation window if just OTA'd.
 
   Serial.println("Ready. Web UI: see the IP printed above, or bulb.local");
 }
 
 void loop() {
+  // While a firmware upload streams in, keep the loop minimal: flash erase/
+  // write gets exclusive access and the other ticks resume after the reboot.
+  if (otaUploading()) {
+    otaTick();
+    updateStatusLed();
+    statusLedTick();
+    delay(2);
+    return;
+  }
+
   webTick();
   serialConsoleTick();
   powerButtonTick();
   zigbeeTick();
   lightTimersTick();
   registryTick();
+  otaTick();
+  webHooksTick();
+  mqttTick();
 
   updateStatusLed();
   statusLedTick();
