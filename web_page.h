@@ -2,7 +2,9 @@
 
 // Embedded control page, served from flash (PROGMEM). Multi-bulb UI:
 // per-bulb cards with power, brightness, white temperature and RGB color,
-// plus pairing, rename/remove and system status.
+// scene bar, pairing, and a tabbed settings dialog (system info, Zigbee
+// devices, per-bulb diagnostics, remote controls with action-map editor,
+// OTA firmware upload).
 
 static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 <html lang="it">
@@ -17,11 +19,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 <title>esp32-zigbee-bulb</title>
 <style>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1d242e;--txt:#e8ecf2;--mut:#8b95a5;
---acc:#4da3ff;--ok:#37c26e;--bad:#e5534b;--line:#252d3a}
+--acc:#4da3ff;--ok:#37c26e;--bad:#e5534b;--warn:#e5a44b;--line:#252d3a}
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .masterrow{margin:10px 0 2px}
 .masterrow .toggle{width:44px;height:24px}
+.masterrow.off{opacity:.45;pointer-events:none}
 body{background:var(--bg);color:var(--txt);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px;max-width:1100px;margin:auto}
 header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:19px;font-weight:650;letter-spacing:.2px}
@@ -30,13 +35,16 @@ button{font:inherit;color:var(--txt);background:var(--card2);border:1px solid va
 button:hover{filter:brightness(1.2)}
 button.primary{background:var(--acc);border-color:var(--acc);color:#04121f;font-weight:600}
 button.danger{color:var(--bad);border-color:#3a2626}
-.status{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:13px;cursor:pointer;width:100%}
+.status{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:13px;cursor:pointer;width:100%;flex-wrap:wrap}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--mut);flex:none}
 .dot.on{background:var(--ok)}.dot.off{background:var(--bad)}
+.sbadge{color:var(--acc);font-size:11px;padding:1px 8px}
+.sbadge.warn{color:var(--warn)}
 #lights{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
 #sceneBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--card);border:1px solid var(--line);border-radius:12px}
 .stitle{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-right:4px}
 .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 12px;margin:2px}
+.chip.active{border-color:var(--acc);color:var(--acc)}
 .chip button.play{background:none;border:none;padding:2px 4px;color:var(--acc);font-weight:700}
 .chip button.del{background:none;border:none;padding:2px 6px;color:var(--mut)}
 .chip button.del:hover{color:var(--bad)}
@@ -46,6 +54,7 @@ button.small{padding:5px 12px;font-size:13px}
 .tmr:hover{color:var(--acc);background:var(--card2)}
 .trow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card.on{box-shadow:inset 3px 0 0 var(--acc)}
 .card.offline{opacity:.55}
 .cardtop{display:flex;align-items:center;gap:8px}
 .bname{font-weight:600;font-size:16px;cursor:pointer;border:none;background:none;color:var(--txt);padding:2px 4px;border-radius:6px;text-align:left}
@@ -60,6 +69,8 @@ button.small{padding:5px 12px;font-size:13px}
 .mode button.sel{background:var(--acc);color:#04121f;font-weight:600}
 input[type=range]{flex:1;accent-color:var(--acc)}
 input[type=color]{width:46px;height:34px;border:1px solid var(--line);border-radius:9px;background:var(--card2);padding:2px;cursor:pointer}
+input[type=file]{font:inherit;color:var(--mut);font-size:13px;max-width:100%}
+select{font:inherit;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
 .hex{font-size:12px;color:var(--mut);min-width:58px}
 label.klbl{display:flex;justify-content:space-between;color:var(--mut);font-size:12px;margin-top:-4px}
 .toggle{position:relative;width:52px;height:28px;flex:none}
@@ -68,14 +79,28 @@ label.klbl{display:flex;justify-content:space-between;color:var(--mut);font-size
 .sl:before{content:"";position:absolute;width:20px;height:20px;border-radius:50%;background:var(--mut);top:3px;left:4px;transition:.15s}
 .toggle input:checked+.sl{background:var(--ok);border-color:var(--ok)}
 .toggle input:checked+.sl:before{background:#fff;transform:translateX(22px)}
-dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:340px;width:90%}
+dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:14px;padding:18px;max-width:340px;width:90%;max-height:85vh;overflow:auto}
+dialog#cfg{max-width:440px}
 dialog::backdrop{background:#000a}
 dialog h2{font-size:16px;margin-bottom:10px}
-dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:6px 0 12px}
+dialog label{display:block;font-size:13px;color:var(--mut);margin:8px 0 2px}
+dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:0 0 10px}
 .drow{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
 .kv{color:var(--mut);font-size:13px;line-height:1.7}
+.tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+.tab{padding:5px 9px;font-size:12px;border-radius:8px;background:none;border:1px solid transparent;color:var(--mut)}
+.tab.sel{background:var(--card2);border-color:var(--line);color:var(--txt)}
+.rrow{display:flex;align-items:center;gap:8px;padding:4px 0}
+.rrow .rname{background:none;border:none;color:var(--txt);font-weight:600;padding:2px 6px;border-radius:6px;cursor:pointer}
+.rrow .rname:hover{background:var(--card2)}
+.rrow .rdel{background:none;border:none;color:var(--mut);padding:2px 8px;border-radius:8px;cursor:pointer}
+.rrow .rdel:hover{color:var(--bad);background:var(--card2)}
+.arow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;color:var(--mut);font-size:13px}
+.arow span{color:var(--txt)}
+.pbar{height:6px;background:var(--card2);border-radius:4px;margin:8px 0;overflow:hidden}
+.pfill{height:100%;background:var(--acc);width:0;transition:width .2s}
 .empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:40px 0;border:1px dashed var(--line);border-radius:14px}
-.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:9px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.25s;pointer-events:none}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);padding:9px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;max-width:90%}
 .toast.show{opacity:1}
 </style>
 </head>
@@ -85,14 +110,15 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <span class="spacer"></span>
   <button id="installBtn" class="primary" hidden>Installa app</button>
   <button id="pairBtn" class="primary">Aggiungi lampadina</button>
-  <button id="setBtn" title="Impostazioni">&#9881;</button>
+  <button id="setBtn" title="Impostazioni" aria-label="Impostazioni">&#9881;</button>
 </header>
 <div class="status" id="statusLine">
-  <span class="dot" id="sdot"></span><span id="stext">connessione&hellip;</span>
+  <span class="dot" id="sdot"></span><span id="stext">connessione&hellip;</span><span id="sbadges"></span>
 </div>
-<div class="row masterrow">
+<div class="row masterrow" id="masterRow">
   <span class="stitle">Tutte</span>
   <label class="toggle"><input type="checkbox" id="masterPw" checked><span class="sl"></span></label>
+  <span class="tmrleft" id="onCount"></span>
   <button id="masterTimer" class="small" title="Timer: spegni tutte">&#9201;&#65039;</button>
   <span class="tmrleft" id="masterTimerLeft" hidden></span>
 </div>
@@ -106,12 +132,48 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <dialog id="dlg"><h2 id="dlgTitle"></h2><div id="dlgBody"></div>
   <div class="drow"><button id="dlgCancel">Annulla</button><button id="dlgOk" class="primary">OK</button></div>
 </dialog>
+
+<dialog id="cfg">
+ <h2>Impostazioni</h2>
+ <div class="tabs" role="tablist">
+  <button class="tab sel" data-t="gen">Generale</button>
+  <button class="tab" data-t="net">Rete</button>
+  <button class="tab" data-t="diag">Diagnostica</button>
+  <button class="tab" data-t="rem">Telecomandi</button>
+  <button class="tab" data-t="fw">Firmware</button>
+ </div>
+ <div id="t-gen">
+  <label>Hostname mDNS</label><input type="text" id="hostIn" maxlength="31" pattern="[a-z0-9-]+">
+  <div class="drow" style="justify-content:flex-start;margin-top:0"><button id="hostApply" class="small">Applica</button></div>
+  <div class="kv" id="genInfo"></div>
+ </div>
+ <div id="t-net" hidden><div class="kv" id="devList"></div></div>
+ <div id="t-diag" hidden><div class="kv" id="diagList"></div></div>
+ <div id="t-rem" hidden>
+  <div id="remList"></div>
+  <div class="kv" style="margin:8px 0 4px"><b>Mappa azioni</b> (globale, valida per tutti i telecomandi)</div>
+  <div id="actMap"></div>
+  <div class="drow" style="justify-content:flex-start"><button id="actSave" class="small primary">Salva azioni</button></div>
+ </div>
+ <div id="t-fw" hidden>
+  <div class="kv">Carica un firmware <b>.bin</b> compilato per questo progetto. Al termine il dispositivo si riavvia: la pagina non risponde per qualche decina di secondi, poi si aggiorna da sola.</div>
+  <input type="file" id="otaFile" accept=".bin" style="margin:10px 0">
+  <label>Token OTA (se richiesto dal server)</label><input type="text" id="otaTok" autocomplete="off">
+  <label>MD5 atteso (opzionale)</label><input type="text" id="otaMd5" maxlength="32" autocomplete="off">
+  <div class="drow" style="justify-content:flex-start"><button id="otaGo" class="primary">Avvia aggiornamento</button><span class="tmrleft" id="otaPct"></span></div>
+  <div class="pbar" id="otaBar" hidden><div class="pfill" id="otaFill"></div></div>
+  <div class="kv" id="otaMsg"></div>
+ </div>
+ <div class="drow"><button id="cfgClose">Chiudi</button></div>
+</dialog>
 <div class="toast" id="toast"></div>
 
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0;
+let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],lastScene='';
+const ACT_LABELS={none:'Nessuna',all_on:'Tutte on',all_off:'Tutte off',toggle_all:'Toggle tutte',brightness_up:'Luminosità +',brightness_down:'Luminosità −',scene_next:'Scena succ.',scene_prev:'Scena prec.'};
+const EV_LABELS={on:'Tasto on',off:'Tasto off',toggle:'Centrale (toggle)',move_up:'Anello su',move_down:'Anello giù',stop:'Rilascio anello',step_up:'Step su',step_down:'Step giù',color_a:'Freccia/dir. A',color_b:'Freccia/dir. B'};
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
@@ -120,39 +182,51 @@ async function api(path,opts){const r=await fetch(path,opts);const j=await r.jso
 async function load(){
  try{
   lights=await api('/api/lights');
-  const sc=await api('/api/scenes');
+  scenesCache=await api('/api/scenes');
   const s=await api('/api/status');
   $('sdot').className='dot '+(s.wifi?'on':'off');
   const heap=(s.free_heap/1024).toFixed(0);
   $('stext').textContent=`${s.bulbs} lampadine · ${s.ip} · ${s.rssi} dBm · heap ${heap} kB`;
+  let bh='';
+  if(s.pairing_open)bh+='<span class="badge sbadge">rete aperta</span>';
+  if(s.ota&&s.ota.pending_verify)bh+='<span class="badge sbadge warn">nuovo fw in verifica</span>';
+  $('sbadges').innerHTML=bh;
   timerAllCache=s.timer_all||0;
   const mt=$('masterTimerLeft');
   if(timerAllCache>0){mt.hidden=false;mt.textContent='⏳ '+fmtT(timerAllCache)}
   else mt.hidden=true;
-  renderScenes(sc);
+  renderScenes();
   render();
  }catch(e){}
 }
 
-function renderScenes(sc){
+function renderScenes(){
  const bar=$('sceneBar');   // Always visible: the save button must be reachable
  bar.hidden=false;          // even with zero scenes.
+ const sc=scenesCache;
  if(!sc.length){$('chips').innerHTML='';bar.dataset.sig='';return}
  const sig=sc.map(s=>s.name).join('|');
- if(sig===bar.dataset.sig)return;
+ if(sig===bar.dataset.sig){paintSceneActive();return}
  bar.dataset.sig=sig;
  const box=$('chips');box.innerHTML='';
  for(const s of sc){
-  const chip=document.createElement('span');chip.className='chip';
-  const play=document.createElement('button');play.className='play';play.title='Richiama';
+  const chip=document.createElement('span');chip.className='chip';chip.dataset.name=s.name;
+  const play=document.createElement('button');play.className='play';play.title='Richiama';play.setAttribute('aria-label','Richiama '+s.name);
   play.innerHTML='&#9654;';
-  play.onclick=async()=>{const r=await api('/api/scenes/'+s.name+'/recall',{method:'POST'});toast(`Scena «${s.name}»: ${r.applied} lampadine`)};
+  play.onclick=async()=>{const r=await api('/api/scenes/'+s.name+'/recall',{method:'POST'});lastScene=s.name;paintSceneActive();toast(`Scena «${s.name}»: ${r.applied} lampadine`)};
   const nm=document.createElement('span');nm.textContent=s.name;
-  const del=document.createElement('button');del.className='del';del.title='Elimina';
+  const del=document.createElement('button');del.className='del';del.title='Elimina';del.setAttribute('aria-label','Elimina '+s.name);
   del.innerHTML='&#10005;';
   del.onclick=()=>sceneDeleteDialog(s);
   chip.append(play,nm,del);box.append(chip);
  }
+ paintSceneActive();
+}
+
+function paintSceneActive(){
+ if(!lastScene)return;
+ const box=$('chips');
+ for(const c of box.children)c.classList.toggle('active',c.dataset.name===lastScene);
 }
 
 $('sceneAdd').onclick=()=>{
@@ -170,7 +244,7 @@ $('sceneAdd').onclick=()=>{
 
 function sceneDeleteDialog(s){
  openDialog('Eliminare la scena «'+s.name+'»?','',async()=>{
-  await api('/api/scenes/'+s.name,{method:'DELETE'});refreshSoon();
+  await api('/api/scenes/'+s.name,{method:'DELETE'});if(lastScene===s.name)lastScene='';refreshSoon();
  },'Elimina');
 }
 
@@ -181,6 +255,9 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g
 
 function render(){
  const box=$('lights');
+ $('masterRow').classList.toggle('off',!lights.length);
+ const on=lights.filter(l=>l.on).length;
+ $('onCount').textContent=on>0?on+' accesa'+(on>1?'e':''):'';
  if(!lights.length){box.innerHTML='<div class="empty">Nessuna lampadina collegata.<br>Premi &laquo;Aggiungi lampadina&raquo; e riaccendi la lampadina 6 volte per associarla.</div>';lastSig='empty';return}
 
  // Rebuild the DOM only when the structure changes (ids, names, online
@@ -196,12 +273,12 @@ function render(){
      <button class="bname" title="Rinomina">${esc(L.name)}</button>
      <span class="badge${L.online?' on':''}">${L.online?'online':'offline'}</span>
      <span class="tmrleft" hidden></span>
-     <button class="tmr" title="Timer spegni">&#9201;&#65039;</button>
-     <button class="rmx" title="Rimuovi">&#10005;</button>
+     <button class="tmr" title="Timer spegni" aria-label="Timer spegni">&#9201;&#65039;</button>
+     <button class="rmx" title="Rimuovi" aria-label="Rimuovi">${'&#10005;'}</button>
     </div>
     <div class="row">
-     <label class="toggle"><input type="checkbox" class="pw" ${L.on?'checked':''}><span class="sl"></span></label>
-     <input type="range" class="bri" min="1" max="100" value="${L.brightness}">
+     <label class="toggle"><input type="checkbox" class="pw" ${L.on?'checked':''} aria-label="Accendi"><span class="sl"></span></label>
+     <input type="range" class="bri" min="1" max="100" value="${L.brightness}" aria-label="Luminosità">
      <span class="hex">${L.brightness}%</span>
     </div>
     <div class="row">
@@ -211,11 +288,11 @@ function render(){
      </div>
     </div>
     <div class="row wm"${L.mode==='white'?'':' hidden'}>
-     <input type="range" class="kelvin" min="2200" max="4000" step="50" value="${L.kelvin}">
+     <input type="range" class="kelvin" min="2200" max="4000" step="50" value="${L.kelvin}" aria-label="Temperatura bianco">
     </div>
     <label class="klbl"${L.mode==='white'?'':' hidden'}><span>2200K caldo</span><span>${L.kelvin}K</span><span>4000K freddo</span></label>
     <div class="row cm"${L.mode==='rgb'?'':' hidden'}>
-     <input type="color" class="col" value="${L.rgb_hex}">
+     <input type="color" class="col" value="${L.rgb_hex}" aria-label="Colore">
      <span class="hex chtxt">${L.rgb_hex.toUpperCase()}</span>
     </div>
    </section>`;
@@ -229,6 +306,7 @@ function render(){
   const card=box.querySelector(`.card[data-id="${L.id}"]`);
   if(!card)continue;
   const id=L.id;
+  card.classList.toggle('on',!!L.on);
   const pw=card.querySelector('.pw');
   if(pw.checked!==L.on&&!editing(id,'pw'))pw.checked=L.on;
   const bri=card.querySelector('.bri');
@@ -342,38 +420,129 @@ function countdown(s){
  },1000);
 }
 
+// --- Settings dialog (tabbed) ------------------------------------------------
+function switchTab(t){
+ document.querySelectorAll('#cfg .tab').forEach(b=>b.classList.toggle('sel',b.dataset.t===t));
+ for(const k of ['gen','net','diag','rem','fw'])$('t-'+k).hidden=k!==t;
+}
+document.querySelectorAll('#cfg .tab').forEach(b=>b.onclick=()=>switchTab(b.dataset.t));
+$('cfgClose').onclick=()=>$('cfg').close();
+$('hostApply').onclick=async()=>{
+ const v=$('hostIn').value.trim().toLowerCase();
+ if(!v)return;
+ await api('/api/hostname',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hostname:v})});
+ toast('Hostname: '+v+'.local');
+};
+
 $('setBtn').onclick=async()=>{
- const [s, devs, ls, rems] = await Promise.all([api('/api/status'), api('/api/devices').catch(()=>[]), api('/api/lights?debug=1').catch(()=>[]), api('/api/remotes').catch(()=>[])]);
- let devRows='';
- for(const d of devs){
-  if(!d.ieee)continue;
-  const tipo=d.name?'lampadina registrata':d.type==='router'?'lampadina (alimentata)':d.type==='end-device'?'dispositivo a batteria (pulsante/telecomando)':d.type==='bound'?'dispositivo agganciato':'controller';
-  const nome=d.name?`<b>${esc(d.name)}</b>`:`Dispositivo ${d.short}`;
-  devRows+=`<div>• ${nome} &nbsp;<span class="kv">${tipo} · ${d.short} · ${d.ieee.slice(0,8)}…</span></div>`;
+ try{
+  const [s,devs,ls,rems,acts]=await Promise.all([
+   api('/api/status'),
+   api('/api/devices').catch(()=>[]),
+   api('/api/lights?debug=1').catch(()=>[]),
+   api('/api/remotes').catch(()=>[]),
+   api('/api/remotes/actions').catch(()=>({}))
+  ]);
+  let devRows='';
+  for(const d of devs){
+   if(!d.ieee)continue;
+   const tipo=d.name?'lampadina registrata':d.type==='router'?'lampadina (alimentata)':d.type==='end-device'?'dispositivo a batteria (pulsante/telecomando)':d.type==='bound'?'dispositivo agganciato':'controller';
+   const nome=d.name?`<b>${esc(d.name)}</b>`:`Dispositivo ${d.short}`;
+   devRows+=`<div>• ${nome} &nbsp;<span class="kv">${tipo} · ${d.short} · ${d.ieee.slice(0,8)}…</span></div>`;
+  }
+  $('devList').innerHTML=devRows||'(elenco in aggiornamento, riprova tra 30 s)';
+  let diagRows='';
+  for(const L of ls){
+   if(!L.debug)continue;
+   const rssi=L.debug.rssi?` · ${L.debug.rssi} dBm`:'';
+   const seen=L.debug.last_seen_s<0?'mai vista':'vista '+L.debug.last_seen_s+'s fa';
+   const fail=L.debug.cmd_failed>0?` · ${L.debug.cmd_failed} err (${esc(L.debug.last_fail||'?')})`:'';
+   diagRows+=`<div>• <b>${esc(L.name)}</b> <span class="kv">· LQI ${L.debug.lqi}${rssi} · ${seen} · ${L.debug.cmd_sent} comandi${fail}</span></div>`;
+  }
+  $('diagList').innerHTML=diagRows||'(nessuna lampadina registrata)';
+  let remRows='';
+  for(const r of rems){
+   const visto=r.last_seen_s<0?'mai premuto':esc(r.last_event||'?')+' · '+r.last_seen_s+'s fa';
+   remRows+=`<div class="rrow"><button class="rname" data-id="${r.id}" data-name="${esc(r.name)}" title="Rinomina">${esc(r.name)}</button>
+    <span class="kv">${visto}</span>
+    <button class="rdel" data-id="${r.id}" data-name="${esc(r.name)}" title="Dimentica" aria-label="Dimentica telecomando">&#10005;</button></div>`;
+  }
+  $('remList').innerHTML=remRows||'(premi un pulsante del telecomando per associarlo)';
+  $('remList').querySelectorAll('.rname').forEach(b=>b.onclick=()=>remoteRenameDialog(b.dataset.id,b.dataset.name));
+  $('remList').querySelectorAll('.rdel').forEach(b=>b.onclick=()=>remoteDeleteDialog(b.dataset.id,b.dataset.name));
+  fillActionMap(acts);
+  $('genInfo').innerHTML=`Indirizzo: ${s.ip}<br>Rete: accedi a http://${esc(s.hostname)}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}`;
+  $('hostIn').value=s.hostname;
+  $('otaMsg').textContent='';
+  switchTab('gen');
+  $('cfg').showModal();
+ }catch(e){}
+};
+
+function remoteRenameDialog(id,old){
+ openDialog('Rinomina telecomando',`<input type="text" id="rnRem" maxlength="20" value="${esc(old)}">`,async()=>{
+  const v=$('rnRem').value.trim();if(!v||v===old)return false;
+  await api('/api/remotes/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v})});
+  toast('Telecomando rinominato');$('setBtn').onclick();
+ },'Salva');
+ setTimeout(()=>$('rnRem').focus(),50);
+}
+
+function remoteDeleteDialog(id,name){
+ openDialog('Dimenticare «'+name+'»?','Il telecomando va riassociato (reset di fabbrica) per tornare nel sistema.',async()=>{
+  await api('/api/remotes/'+id,{method:'DELETE'});
+  toast('Telecomando dimenticato');$('setBtn').onclick();
+ },'Dimentica');
+}
+
+function fillActionMap(acts){
+ let m='';
+ for(const ev in acts){
+  const cur=acts[ev];
+  let opts='';
+  for(const a in ACT_LABELS)opts+=`<option value="${a}"${a===cur?' selected':''}>${ACT_LABELS[a]}</option>`;
+  m+=`<label class="arow"><span>${EV_LABELS[ev]||ev}</span><select data-ev="${ev}">${opts}</select></label>`;
  }
- let diagRows='';
- for(const L of ls){
-  if(!L.debug)continue;
-  const rssi=L.debug.rssi?` · ${L.debug.rssi} dBm`:'';
-  const seen=L.debug.last_seen_s<0?'mai vista':'vista '+L.debug.last_seen_s+'s fa';
-  const fail=L.debug.cmd_failed>0?` · ${L.debug.cmd_failed} err (${esc(L.debug.last_fail||'?')})`:'';
-  diagRows+=`<div>• <b>${esc(L.name)}</b> <span class="kv">· LQI ${L.debug.lqi}${rssi} · ${seen} · ${L.debug.cmd_sent} comandi${fail}</span></div>`;
- }
- let remRows='';
- for(const r of rems){
-  const visto=r.last_seen_s<0?'mai premuto':'ultima azione: '+esc(r.last_event||'?')+' ('+r.last_seen_s+'s fa)';
-  remRows+=`<div>• <b>${esc(r.name)}</b> <span class="kv">· ${visto}</span></div>`;
- }
- openDialog('Impostazioni',
-  `<label>Hostname mDNS</label><input type="text" id="hostIn" maxlength="31" value="${esc(s.hostname)}" pattern="[a-z0-9-]+">
-   <div class="kv">Indirizzo: ${s.ip}<br>Rete: accedi a http://${s.hostname}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}</div>
-   <div class="kv" style="margin-top:8px"><b>Dispositivi nella rete Zigbee:</b><br>${devRows||'(elenco in aggiornamento, riprova tra 30 s)'}</div>
-   <div class="kv" style="margin-top:8px"><b>Diagnostica lampadine:</b><br>${diagRows||'(nessuna lampadina registrata)'}</div>
-   <div class="kv" style="margin-top:8px"><b>Telecomandi Zigbee:</b><br>${remRows||'(premi un pulsante del telecomando per associarlo)'}</div>`,
-  async()=>{
-   const v=$('hostIn').value.trim().toLowerCase();
-   if(v&&v!==s.hostname){await api('/api/hostname',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hostname:v})});toast('Hostname: '+v+'.local')}
-  });
+ $('actMap').innerHTML=m;
+}
+
+$('actSave').onclick=async()=>{
+ const body={};
+ $('actMap').querySelectorAll('select').forEach(s=>{body[s.dataset.ev]=s.value});
+ try{
+  const r=await api('/api/remotes/actions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  toast('Mappa azioni salvata');fillActionMap(r.actions);
+ }catch(e){}
+};
+
+// --- OTA upload ---------------------------------------------------------------
+$('otaGo').onclick=()=>{
+ const f=$('otaFile').files[0];
+ if(!f){toast('Scegli un file .bin');return}
+ if(!f.name.toLowerCase().endsWith('.bin')){toast('Il file deve essere .bin');return}
+ if(!confirm('Avviare l\'aggiornamento? Al termine il dispositivo si riavvia.'))return;
+ const fd=new FormData();fd.append('update',f);
+ const x=new XMLHttpRequest();x.open('POST','/api/ota');
+ const tok=$('otaTok').value.trim(),md5=$('otaMd5').value.trim();
+ if(tok)x.setRequestHeader('X-OTA-TOKEN',tok);
+ if(md5)x.setRequestHeader('X-OTA-MD5',md5);
+ $('otaBar').hidden=false;$('otaFill').style.width='0';$('otaPct').textContent='';
+ $('otaGo').disabled=true;
+ x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded/e.total*100);$('otaFill').style.width=p+'%';$('otaPct').textContent=p+'%'}};
+ x.onload=()=>{
+  $('otaGo').disabled=false;
+  let j={};try{j=JSON.parse(x.responseText)}catch(_){}
+  if(x.status===200&&j.ok){
+   $('otaFill').style.width='100%';
+   $('otaMsg').textContent='Firmware caricato ('+(j.size||'')+' byte): il dispositivo si riavvia. Se il nuovo firmware non parte, torna automaticamente alla versione precedente.';
+   toast('Firmware caricato, riavvio…');
+  }else{
+   $('otaBar').hidden=true;
+   $('otaMsg').textContent='Errore: '+(j.error||('HTTP '+x.status));
+  }
+ };
+ x.onerror=()=>{$('otaGo').disabled=false;$('otaBar').hidden=true;$('otaMsg').textContent='Errore di rete durante l\'upload'};
+ x.send(fd);
 };
 
 $('statusLine').onclick=()=>$('setBtn').onclick();
@@ -406,8 +575,9 @@ static const char MANIFEST_JSON[] PROGMEM = R"rawliteral({
 })rawliteral";
 
 // Network-first service worker: keeps the UI always fresh, makes the app
-// installable and caches the static shell as a fallback.
-static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v1';
+// installable and caches the static shell as a fallback. Bump V when the
+// page changes so installed PWAs pick up the new shell.
+static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v2';
 const SHELL=['/','/icon-192.png','/icon-512.png','/manifest.json'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
