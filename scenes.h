@@ -25,6 +25,13 @@ size_t scenesCount();
 String sceneNameAt(size_t index);  // "" if out of range
 int sceneIndexOf(const String &name);
 
+// Raw stored entry ("ieee;state|ieee;state"), aligned with sceneNameAt();
+// used by the backup export.
+String sceneEntryAt(size_t index);
+
+// Stores a raw entry produced by the backup export (bypasses capture).
+bool sceneImport(const String &name, const String &data);
+
 // Captures the current state of all registered bulbs under the given name
 // (creating or replacing). Returns false if invalid name or storage full.
 bool sceneCapture(const String &name);

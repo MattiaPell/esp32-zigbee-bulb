@@ -3,6 +3,7 @@
 #include <Preferences.h>
 
 #include "config.h"
+#include "web_hooks.h"
 #include "zigbee_bulbs.h"
 
 namespace {
@@ -62,6 +63,31 @@ String sceneNameAt(size_t index) {
     ++seen;
   }
   return String();
+}
+
+String sceneEntryAt(size_t index) {
+  uint8_t seen = 0;
+  for (uint8_t i = 0; i < MAX_SCENES; ++i) {
+    if (scenes[i].name[0] == '\0') continue;
+    if ((size_t)seen == index) {
+      return prefs.getString(("s" + String(i) + "d").c_str(), "");
+    }
+    ++seen;
+  }
+  return String();
+}
+
+bool sceneImport(const String &name, const String &data) {
+  if (!isValidSceneName(name) || data.length() == 0) return false;
+  int at = spotFor(name);
+  if (at < 0) {
+    at = findFreeSpot();
+    if (at < 0) return false;
+    name.toCharArray(scenes[at].name, sizeof(scenes[at].name));
+  }
+  prefs.putString(("s" + String(at) + "d").c_str(), data);
+  prefs.putUChar("count", scenesCount());
+  return true;
 }
 
 int sceneIndexOf(const String &name) {
@@ -154,6 +180,7 @@ bool sceneRecall(const String &name, int &applied, int &skipped) {
   }
 
   registryFlush();
+  webHookEvent("scene_applied", "", "", name.c_str());
   Serial.printf("Scenes: '%s' recalled (%d applied, %d skipped)\n", name.c_str(),
                 applied, skipped);
   return true;

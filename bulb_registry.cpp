@@ -127,6 +127,13 @@ Bulb *registryFindByIeee(const esp_zb_ieee_addr_t ieee) {
   return nullptr;
 }
 
+Bulb *registryFindByIeeeHex(const String &ieeeHex) {
+  for (size_t i = 0; i < bulbCountValue; ++i) {
+    if (bulbIeeeHex(&bulbs[i]).equalsIgnoreCase(ieeeHex)) return &bulbs[i];
+  }
+  return nullptr;
+}
+
 Bulb *registryAdd(const esp_zb_ieee_addr_t ieee) {
   if (ieeeEquals(ieee, kNullIeee)) return nullptr;
   if (registryFindByIeee(ieee) != nullptr) return registryFindByIeee(ieee);

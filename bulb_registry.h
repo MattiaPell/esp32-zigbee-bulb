@@ -34,7 +34,16 @@ struct Bulb {
   uint16_t shortAddr = 0xFFFF;    // Runtime only, refreshed from Zigbee
   uint8_t endpoint = 0;           // Runtime only, refreshed from Zigbee
   bool online = false;            // Bound and reachable
+  bool groupMember = false;       // Runtime only: confirmed in the "all" group
   BulbState state;                // Last commanded/known state
+
+  // --- Runtime diagnostics (not persisted) ----------------------------------
+  uint32_t lastSeenMs = 0;        // Last report/readback from the bulb (millis); 0 = never
+  uint8_t lqi = 0;                // Link quality from the NWK neighbor table (0-255)
+  int8_t rssi = 0;                // RSSI from the NWK neighbor table (dBm), 0 = unknown
+  uint16_t cmdSent = 0;           // Command operations attempted since boot
+  uint16_t cmdFailed = 0;         // Operations rejected by a default response
+  uint8_t lastFailStatus = 0xFF;  // Last failing ZCL status (0xFF = none)
 };
 
 // Load the registry from NVS. Call once at boot before Zigbee starts.
@@ -43,6 +52,7 @@ void registryBegin();
 size_t registryCount();
 Bulb *registryGet(size_t index);            // nullptr if out of range
 Bulb *registryFindByIeee(const esp_zb_ieee_addr_t ieee);
+Bulb *registryFindByIeeeHex(const String &ieeeHex);  // API id lookup (MQTT)
 
 // Add with an auto name ("Bulb N"). Returns the new bulb, nullptr if full.
 Bulb *registryAdd(const esp_zb_ieee_addr_t ieee);

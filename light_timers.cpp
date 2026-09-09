@@ -1,6 +1,7 @@
 #include "light_timers.h"
 
 #include "bulb_registry.h"
+#include "web_hooks.h"
 #include "zigbee_bulbs.h"
 
 namespace {
@@ -55,10 +56,14 @@ void lightTimersTick() {
     if (!entries[i].active) continue;
     if ((int32_t)(now - entries[i].expireMs) >= 0) {
       if (ieeeSame(entries[i].ieee, kZeroIeee)) {
+        webHookEvent("timer_expired", "", "all bulbs", "all");
         bulbSendAllOff();
       } else {
         Bulb *b = registryFindByIeee(entries[i].ieee);
-        if (b != nullptr) bulbSendOff(b);
+        if (b != nullptr) {
+          webHookEvent("timer_expired", bulbIeeeHex(b).c_str(), b->name);
+          bulbSendOff(b);
+        }
       }
       entries[i].active = false;
       Serial.println("Timers: expired, bulbs off.");

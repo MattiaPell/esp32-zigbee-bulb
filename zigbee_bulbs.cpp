@@ -7,6 +7,8 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "status_led.h"
+#include "web_hooks.h"
+#include "zigbee_groups.h"
 
 namespace {
 
@@ -234,6 +236,25 @@ Bulb *bulbByIeeeFromResponse(const esp_zb_ieee_addr_t ieee) {
   return registryFindByIeee(ieee);
 }
 
+// Collective group path: usable when every reachable bulb is a confirmed
+// member of the shared group (USE_ZIGBEE_GROUPS false forces unicast).
+bool groupUsable() {
+  if (!USE_ZIGBEE_GROUPS || registryCount() == 0) return false;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    const Bulb *b = registryGet(i);
+    if (bulbReady(b) && !b->groupMember) return false;
+  }
+  return true;
+}
+
+size_t readyBulbCount() {
+  size_t n = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    if (bulbReady(registryGet(i))) ++n;
+  }
+  return n;
+}
+
 // Re-arms the boot state resend (idempotent): used when a bulb becomes
 // addressable late, after the first pass already skipped it.
 void armBootResend() {
@@ -257,6 +278,36 @@ void noteShortSource(uint16_t shortAddr) {
 
 // --- Report callbacks (ZCL attribute updates from the bulbs) ----------------
 
+// Per-bulb diagnostics: every report marks the bulb as seen; the link
+// metrics come from the NWK neighbor table (see zigbeeRequestMembers).
+void noteReport(Bulb *b) {
+  if (b == nullptr) return;
+  if (!b->online) b->online = true;
+  b->lastSeenMs = millis();
+}
+
+// Command bookkeeping: the default-response callback attributes failures to
+// the most recently commanded bulb (commands are staggered, one bulb at a
+// time, so the attribution is unambiguous in practice).
+Bulb *lastCommanded = nullptr;
+
+void noteCommandSent(Bulb *b) {
+  if (b == nullptr) return;
+  lastCommanded = b;
+  if (b->cmdSent < 0xFFFF) ++b->cmdSent;
+}
+
+void onBulbDefaultResponse(zb_cmd_type_t respToCmd, esp_zb_zcl_status_t status) {
+  if (status == ESP_ZB_ZCL_STATUS_SUCCESS) return;
+  Bulb *b = lastCommanded;
+  if (b == nullptr) return;
+  if (b->cmdFailed < 0xFFFF) ++b->cmdFailed;
+  b->lastFailStatus = (uint8_t)status;
+  Serial.printf("Zigbee: %s command %u failed (status %d: %s)\n", b->name,
+                (unsigned)respToCmd, (int)status,
+                esp_zb_zcl_status_to_name(status));
+}
+
 Bulb *bulbFromSource(uint8_t srcEndpoint, const esp_zb_zcl_addr_t &source) {
   if (source.addr_type == ESP_ZB_ZCL_ADDR_TYPE_IEEE) {
     return registryFindByIeee(source.u.ieee_addr);
@@ -277,7 +328,7 @@ Bulb *bulbFromSource(uint8_t srcEndpoint, const esp_zb_zcl_addr_t &source) {
 void onBulbStateReport(bool on, uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
   Bulb *b = bulbFromSource(srcEndpoint, source);
   if (b == nullptr) return;
-  if (!b->online) b->online = true;
+  noteReport(b);
   if (b->state.power != on) {
     b->state.power = on;
     registryMarkDirty();
@@ -287,7 +338,7 @@ void onBulbStateReport(bool on, uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
 void onBulbLevelReport(uint8_t level, uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
   Bulb *b = bulbFromSource(srcEndpoint, source);
   if (b == nullptr) return;
-  if (!b->online) b->online = true;
+  noteReport(b);
   if (b->state.level != level) {
     b->state.level = level;
     registryMarkDirty();
@@ -298,7 +349,7 @@ void onBulbColorReport(uint8_t red, uint8_t green, uint8_t blue,
                        uint8_t srcEndpoint, esp_zb_zcl_addr_t source) {
   Bulb *b = bulbFromSource(srcEndpoint, source);
   if (b == nullptr) return;
-  if (!b->online) b->online = true;
+  noteReport(b);
   // Store the color but do not switch the mode: a warm-white bulb reports
   // its own XY point, which is not an RGB command.
   if (b->state.red != red || b->state.green != green || b->state.blue != blue) {
@@ -370,6 +421,11 @@ void syncRegistryWithBindings() {
   std::list<zb_device_params_t *> bound = bulbEP.getBoundDevices();
 
   bool seen[MAX_BULBS] = {false};
+  // The first pass after boot mirrors "what was already there": the boot
+  // event covers it, so online/offline notifications start from the next
+  // pass only.
+  static bool firstSyncDone = false;
+  const bool notify = firstSyncDone;
 
   for (zb_device_params_t *device : bound) {
     Bulb *b = nullptr;
@@ -393,7 +449,15 @@ void syncRegistryWithBindings() {
 
     if (device->short_addr != 0xFFFF) b->shortAddr = device->short_addr;
     if (device->endpoint != 0) b->endpoint = device->endpoint;
-    b->online = true;
+    if (!b->online) {
+      b->online = true;
+      if (notify) {
+        webHookEvent("bulb_online", bulbIeeeHex(b).c_str(), b->name);
+      }
+    }
+    if (!b->groupMember) {
+      groupEnroll(b);  // Freshly reachable: queue group membership.
+    }
     size_t index = b - registryGet(0);
     if (index < MAX_BULBS) seen[index] = true;
   }
@@ -402,9 +466,13 @@ void syncRegistryWithBindings() {
     Bulb *b = registryGet(i);
     if (!seen[i] && b->online) {
       b->online = false;
+      if (notify) {
+        webHookEvent("bulb_offline", bulbIeeeHex(b).c_str(), b->name);
+      }
       Serial.printf("Zigbee: %s not in binding table (offline)\n", b->name);
     }
   }
+  firstSyncDone = true;
 }
 
 // --- ZDO address resolution ---------------------------------------------------
@@ -520,6 +588,7 @@ void zigbeeBegin() {
   bulbEP.onLightStateChangeWithSource(onBulbStateReport);
   bulbEP.onLightLevelChangeWithSource(onBulbLevelReport);
   bulbEP.onLightColorChangeWithSource(onBulbColorReport);
+  bulbEP.onDefaultResponse(onBulbDefaultResponse);
   Zigbee.addEndpoint(&bulbEP);
 
   esp_coex_wifi_i154_enable();  // Wi-Fi + 802.15.4 coexistence (ESP32-C6).
@@ -565,6 +634,7 @@ void zigbeeRemoveDevice(Bulb *bulb) {
   probe.endpoint = bulb->endpoint;
   bulbEP.removeBoundDevice(&probe);
 
+  groupForget(bulb);  // Tell the bulb to leave the group (fire and forget).
   registryRemove(bulb);
 }
 
@@ -626,6 +696,9 @@ void zigbeeTick() {
   // Verify newly-bound devices (bulb vs remote/steering device).
   verifyTick(now);
 
+  // Group membership enrollment (staggered Add Group commands).
+  groupTick(now);
+
   // Network member snapshot refresh.
   if (now - lastMembersMs >= MEMBER_REFRESH_MS) {
     lastMembersMs = now;
@@ -668,6 +741,7 @@ void zigbeeTick() {
 void bulbSendOn(Bulb *bulb) {
   if (!bulbReady(bulb)) return;
   bulbEP.lightOn(bulb->endpoint, bulb->shortAddr);
+  noteCommandSent(bulb);
   bulb->state.power = true;
   registryMarkDirty();
 }
@@ -675,6 +749,7 @@ void bulbSendOn(Bulb *bulb) {
 void bulbSendOff(Bulb *bulb) {
   if (!bulbReady(bulb)) return;
   bulbEP.lightOff(bulb->endpoint, bulb->shortAddr);
+  noteCommandSent(bulb);
   bulb->state.power = false;
   registryMarkDirty();
 }
@@ -682,6 +757,7 @@ void bulbSendOff(Bulb *bulb) {
 void bulbSendToggle(Bulb *bulb) {
   if (!bulbReady(bulb)) return;
   bulbEP.lightToggle(bulb->endpoint, bulb->shortAddr);
+  noteCommandSent(bulb);
   bulb->state.power = !bulb->state.power;
   registryMarkDirty();
 }
@@ -694,6 +770,7 @@ void bulbSendBrightness(Bulb *bulb, uint8_t pct, uint16_t transitionDs) {
   }
   uint8_t level = (uint8_t)((pct * 255 + 50) / 100);
   sendMoveToLevelWithOnOff(bulb, level, clampTransition(transitionDs));
+  noteCommandSent(bulb);
   bulb->state.power = true;
   bulb->state.level = level;
   registryMarkDirty();
@@ -703,6 +780,7 @@ void bulbSendKelvin(Bulb *bulb, int kelvin, uint16_t transitionDs) {
   if (!bulbReady(bulb)) return;
   sendMoveToColorTemperature(bulb, kelvinToMireds(kelvin),
                              clampTransition(transitionDs));
+  noteCommandSent(bulb);
   bulb->state.mode = BulbColorMode::White;
   bulb->state.kelvin = (uint16_t)constrain(kelvin, MIN_KELVIN, MAX_KELVIN);
   registryMarkDirty();
@@ -712,6 +790,7 @@ void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitio
   if (!bulbReady(bulb)) return;
   espXyColor_t xy = espRgbToXYColor(r, g, b);
   sendMoveToColor(bulb, xy.x, xy.y, clampTransition(transitionDs));
+  noteCommandSent(bulb);
   bulb->state.mode = BulbColorMode::Rgb;
   bulb->state.red = r;
   bulb->state.green = g;
@@ -735,6 +814,20 @@ void zigbeeRequestMembers() {
     members[n].deviceType = info.device_type;
     members[n].shortAddr = info.short_addr;
     memcpy(members[n].ieee, info.ieee_addr, sizeof(esp_zb_ieee_addr_t));
+    // Link diagnostics: attach to the bulb this neighbor belongs to.
+    Bulb *bulb = registryFindByIeee(info.ieee_addr);
+    if (bulb == nullptr) {
+      for (size_t j = 0; j < registryCount(); ++j) {
+        if (registryGet(j)->shortAddr == info.short_addr) {
+          bulb = registryGet(j);
+          break;
+        }
+      }
+    }
+    if (bulb != nullptr) {
+      bulb->lqi = info.lqi;
+      bulb->rssi = info.rssi;
+    }
     ++n;
   }
   memberCount = n;
@@ -760,27 +853,125 @@ size_t zigbeeBoundSnapshot(DeviceInfo *out, size_t cap) {
   return n;
 }
 
-void bulbSendAllOn() {
+int bulbSendAllOn() {
+  if (groupUsable() && groupSendOn()) {
+    for (size_t i = 0; i < registryCount(); ++i) {
+      Bulb *b = registryGet(i);
+      if (bulbReady(b)) b->state.power = true;  // Each resumes its own state.
+    }
+    registryMarkDirty();
+    Serial.println("All bulbs on (group frame).");
+    return (int)readyBulbCount();
+  }
+  int applied = 0;
   for (size_t i = 0; i < registryCount(); ++i) {
     Bulb *b = registryGet(i);
     if (bulbReady(b)) {
       bulbSendOn(b);  // The bulb resumes its own last level and color.
+      ++applied;
     }
   }
-  Serial.println("All bulbs on.");
+  return applied;
 }
 
-void bulbSendAllOff() {
+int bulbSendAllOff() {
+  if (groupUsable() && groupSendOff()) {
+    for (size_t i = 0; i < registryCount(); ++i) {
+      registryGet(i)->state.power = false;  // Keep stored state honest.
+    }
+    registryFlush();
+    Serial.println("Kill switch: all bulbs off (group frame).");
+    return (int)readyBulbCount();
+  }
+  int applied = 0;
   for (size_t i = 0; i < registryCount(); ++i) {
     Bulb *b = registryGet(i);
     if (bulbReady(b)) {
       bulbSendOff(b);
+      ++applied;
     } else {
       b->state.power = false;  // Keep the stored state honest even if offline.
     }
   }
   registryFlush();
-  Serial.println("Kill switch: all bulbs off.");
+  return applied;
+}
+
+int bulbSendAllBrightness(uint8_t pct, uint16_t transitionDs) {
+  if (pct == 0) return bulbSendAllOff();
+  if (groupUsable() && groupSendBrightness(pct, transitionDs)) {
+    const uint8_t level = (uint8_t)((pct * 255 + 50) / 100);
+    for (size_t i = 0; i < registryCount(); ++i) {
+      Bulb *b = registryGet(i);
+      if (bulbReady(b)) {
+        b->state.power = true;
+        b->state.level = level;
+      }
+    }
+    registryMarkDirty();
+    Serial.printf("All bulbs to %u %% (group frame).\n", pct);
+    return (int)readyBulbCount();
+  }
+  int applied = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (bulbReady(b)) {
+      bulbSendBrightness(b, pct, transitionDs);
+      ++applied;
+    }
+  }
+  return applied;
+}
+
+int bulbSendAllKelvin(int kelvin, uint16_t transitionDs) {
+  if (groupUsable() && groupSendKelvin(kelvin, transitionDs)) {
+    const uint16_t clamped = (uint16_t)constrain(kelvin, MIN_KELVIN, MAX_KELVIN);
+    for (size_t i = 0; i < registryCount(); ++i) {
+      Bulb *b = registryGet(i);
+      if (bulbReady(b)) {
+        b->state.mode = BulbColorMode::White;
+        b->state.kelvin = clamped;
+      }
+    }
+    registryMarkDirty();
+    Serial.printf("All bulbs to %d K (group frame).\n", clamped);
+    return (int)readyBulbCount();
+  }
+  int applied = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *b = registryGet(i);
+    if (bulbReady(b)) {
+      bulbSendKelvin(b, kelvin, transitionDs);
+      ++applied;
+    }
+  }
+  return applied;
+}
+
+int bulbSendAllRgb(uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs) {
+  if (groupUsable() && groupSendRgb(r, g, b, transitionDs)) {
+    for (size_t i = 0; i < registryCount(); ++i) {
+      Bulb *bulb = registryGet(i);
+      if (bulbReady(bulb)) {
+        bulb->state.mode = BulbColorMode::Rgb;
+        bulb->state.red = r;
+        bulb->state.green = g;
+        bulb->state.blue = b;
+      }
+    }
+    registryMarkDirty();
+    Serial.println("All bulbs to RGB (group frame).");
+    return (int)readyBulbCount();
+  }
+  int applied = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *bulb = registryGet(i);
+    if (bulbReady(bulb)) {
+      bulbSendRgb(bulb, r, g, b, transitionDs);
+      ++applied;
+    }
+  }
+  return applied;
 }
 
 void bulbSendFullState(Bulb *bulb) {
@@ -791,6 +982,7 @@ void bulbSendFullState(Bulb *bulb) {
 
 void bulbApplyState(Bulb *bulb, const BulbState &wanted, uint16_t transitionDs) {
   if (!bulbReady(bulb)) return;
+  noteCommandSent(bulb);
   if (!wanted.power) {
     bulbEP.lightOff(bulb->endpoint, bulb->shortAddr);
     bulb->state.power = false;

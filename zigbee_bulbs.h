@@ -78,11 +78,18 @@ void bulbSendKelvin(Bulb *bulb, int kelvin, uint16_t transitionDs);
 // RGB color, sent as CIE XY (converted with the library helper).
 void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs);
 
-// Kill switch: everything off, state persisted.
-void bulbSendAllOff();
+// Kill switch: everything off, state persisted. Returns how many bulbs
+// were commanded (group frame counts as every reachable bulb).
+int bulbSendAllOff();
 
 // Turns every reachable bulb back on, each at its own last state.
-void bulbSendAllOn();
+int bulbSendAllOn();
+
+// Collective brightness / white temperature / color for every reachable
+// bulb: one native group frame when possible, per-bulb unicast otherwise.
+int bulbSendAllBrightness(uint8_t pct, uint16_t transitionDs);
+int bulbSendAllKelvin(int kelvin, uint16_t transitionDs);
+int bulbSendAllRgb(uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs);
 
 // Resends the stored state of one bulb (used after boot / power cut).
 void bulbSendFullState(Bulb *bulb);
