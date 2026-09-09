@@ -26,6 +26,7 @@
 #include "mqtt_bridge.h"
 #include "ota_update.h"
 #include "power_button.h"
+#include "remote_controls.h"
 #include "scenes.h"
 #include "serial_console.h"
 #include "status_led.h"
@@ -73,6 +74,7 @@ void setup() {
   registryBegin();
   scenesBegin();
   lightTimersBegin();
+  remotesBegin();  // Registered Zigbee remotes/steering devices.
   powerButtonBegin(onKillSwitch);
 
   webBegin();

@@ -31,6 +31,9 @@ Features:
   counters (REST API and settings dialog);
 - **webhook events**: `boot`, `bulb_online`, `bulb_offline`, `timer_expired`
   and `scene_applied` posted as JSON to external URLs;
+- **Zigbee remote controls** (TRÅDFRI, STYRBAR…): pair one and its buttons
+  drive the lights out of the box (toggle, dim, scene cycling), with a
+  configurable action map;
 - optional **MQTT bridge** for Home Assistant (hand-rolled client; compiled
   in only when a broker host is configured in `secrets.h`);
 - configurable mDNS hostname, so several controllers can share one network;
@@ -127,6 +130,50 @@ survives, because the NVS partition keeps its offset.
 To remove a bulb, use the ✕ on its card: the controller sends a ZDO unbind
 and forgets the stored state.
 
+## Remote controls
+
+IKEA Zigbee remotes and steering devices (TRÅDFRI remote, STYRBAR,
+SYMFONISK dial…) can drive the lights directly:
+
+1. Open a pairing window (**Aggiungi lampadina**, or `pair` on the serial
+   console).
+2. Put the remote in pairing mode per the IKEA instructions (usually a
+   long press of the pairing/reset button, close to the board).
+3. The remote binds to the controller and appears under
+   **Impostazioni → Telecomandi** (or `GET /api/remotes`). It is
+   registered even before the first press.
+
+Default behavior (works with zero configuration):
+
+| Press | Action |
+|---|---|
+| center: toggle | master switch: all bulbs on / off |
+| ring up / down (held) | brightness of every bulb ±10 % |
+| on / off keys | all bulbs on / off |
+| arrows / temp wheel steps | previous / next scene (cycling) |
+| scene recall (if sent) | recalls the scene with that number |
+
+Customize with `POST /api/remotes/actions`, e.g.:
+
+```
+curl -X POST http://bulb.local/api/remotes/actions \
+     -H 'Content-Type: application/json' \
+     -d '{"toggle":"scene_next","move_up":"all_on","stop":"all_off"}'
+```
+
+Events: `off`, `on`, `toggle`, `move_up`, `move_down`, `stop`, `step_up`,
+`step_down`, `color_a`, `color_b` (fixed at `GET /api/remotes/actions`;
+scene recall always recalls the scene in the payload). Actions: `none`,
+`all_on`, `all_off`, `toggle_all`, `brightness_up`, `brightness_down`,
+`scene_next`, `scene_prev`. Every press also fires a `remote_pressed`
+webhook. Presses of commands outside the set above are logged on the serial
+console (see `GET /api/remotes` for the last one).
+
+Remotes work over unicast bindings (how they pair with the coordinator): a
+remote configured to send to a Zigbee group is not captured. Renames are
+per-remote; the action map is global. To re-enroll a forgotten remote,
+factory-reset it and pair again.
+
 The onboard status LED shows: blinking blue = Wi-Fi connecting, blinking
 purple = Zigbee starting, breathing amber = pairing window open / no bulbs,
 solid green = ready, fast red = startup error.
@@ -153,6 +200,11 @@ address in hex (stable across reboots).
 | POST   | `/api/hooks/test`   | `{"url":"https://..."}` sends a test event to that URL (not saved) |
 | GET    | `/api/mqtt`         | `{"enabled":..,"connected":..,"host":..,"port":..}` (only when MQTT is compiled in) |
 | POST   | `/api/mqtt`         | `{"enabled":true|false}` runtime toggle (persisted) |
+| GET    | `/api/remotes`      | paired Zigbee remotes/steering devices with the last press |
+| PATCH  | `/api/remotes/{id}` | `{"name":"..."}` renames a remote |
+| DELETE | `/api/remotes/{id}` | forgets a remote (factory-reset the remote to re-enroll) |
+| GET    | `/api/remotes/actions` | the event → action map |
+| POST   | `/api/remotes/actions` | `{"toggle":"toggle_all","step_up":"brightness_up",...}` overrides the map |
 | GET    | `/api/backup`       | full configuration export as one JSON document |
 | POST   | `/api/restore`      | re-import the same document (see "Backup and restore") |
 | POST   | `/api/hostname`     | `{"hostname":"my-light"}` (a-z, 0-9, `-`) |

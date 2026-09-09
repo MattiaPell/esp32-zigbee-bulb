@@ -6,6 +6,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "remote_controls.h"
 #include "status_led.h"
 #include "web_hooks.h"
 #include "zigbee_groups.h"
@@ -168,6 +169,7 @@ void verifyTick(uint32_t now) {
       if (job == nullptr) return;
 
       bool isLight = false;
+      bool isRemote = false;
       if (status == ESP_ZB_ZDP_STATUS_SUCCESS && desc != nullptr) {
         for (uint8_t c = 0; c < desc->app_input_cluster_count; ++c) {
           if (desc->app_cluster_list[c] == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
@@ -176,6 +178,17 @@ void verifyTick(uint32_t now) {
           }
         }
         if (!isLight) {
+          // Steering devices expose on/off only as OUTPUT (client) clusters.
+          for (uint8_t c = desc->app_input_cluster_count;
+               c < desc->app_input_cluster_count + desc->app_output_cluster_count;
+               ++c) {
+            if (desc->app_cluster_list[c] == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
+              isRemote = true;
+              break;
+            }
+          }
+        }
+        if (!isLight && !isRemote) {
           Serial.printf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
                         job->shortAddr, job->endpoint, desc->app_device_id);
         }
@@ -188,6 +201,8 @@ void verifyTick(uint32_t now) {
           if (job->endpoint != 0) added->endpoint = job->endpoint;
           Serial.println("Zigbee: verified bound device is a light: registered.");
         }
+      } else if (isRemote) {
+        remoteEnroll(job->ieee, job->shortAddr, job->endpoint);
       } else {
         if (verifyBlacklistCount < VERIFY_BLACKLIST) {
           memcpy(verifyBlacklist[verifyBlacklistCount++], job->ieee, sizeof(esp_zb_ieee_addr_t));
@@ -604,6 +619,8 @@ void zigbeeBegin() {
     ESP.restart();
   }
   Serial.println("Zigbee coordinator started.");
+
+  remoteAttach(bulbEP);  // Intercept remote/steering device commands.
 }
 
 void zigbeeOpenPairing(uint8_t seconds) {
@@ -698,6 +715,9 @@ void zigbeeTick() {
 
   // Group membership enrollment (staggered Add Group commands).
   groupTick(now);
+
+  // Remote control housekeeping (IEEE resolution for new remotes).
+  remotesTick();
 
   // Network member snapshot refresh.
   if (now - lastMembersMs >= MEMBER_REFRESH_MS) {

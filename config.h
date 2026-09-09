@@ -16,6 +16,8 @@ constexpr uint8_t STATUS_LED_BRIGHTNESS = 40;  // 0-255, keep it comfortable
 constexpr uint8_t BULB_ENDPOINT = 5;      // Controller endpoint used for binding
 constexpr uint8_t PAIRING_SECONDS = 180;  // Network open window for new bulbs
 constexpr uint8_t MAX_BULBS = 16;         // Registry cap
+constexpr uint8_t MAX_REMOTES = 4;        // Zigbee remote/steering device cap
+constexpr uint8_t REMOTE_DIM_STEP_PCT = 10;  // Per press (ring/step), 0-100
 constexpr uint16_t ZIGBEE_GROUP_ID = 0x0001;  // The shared "all lights" group
 constexpr bool USE_ZIGBEE_GROUPS = true;      // False = always per-bulb unicast
 

@@ -40,6 +40,11 @@ arduino-cli compile \
 - `zigbee_bulbs.cpp` owns the coordinator endpoint and all ZCL/ZDO traffic.
   Every `esp_zb_*` call is wrapped in
   `esp_zb_lock_acquire(portMAX_DELAY)` / `esp_zb_lock_release()`.
+- `remote_controls.cpp`: Zigbee remotes/steering devices. Their commands are
+  intercepted with `ZigbeeEP::addPrivilegeCommand` + `onPrivilegeCommand`
+  (registered after `Zigbee.begin`), normalized into press events and mapped
+  to actions. Enrolled from the ZDO descriptor check in `verifyTick`
+  (on/off as OUTPUT cluster = remote, INPUT = light).
 - `bulb_registry.cpp`: per-bulb state persisted in NVS with a debounce
   (`registryMarkDirty` + `registryTick`/`registryFlush`). Identity is the
   IEEE address; short address and endpoint are runtime-only.

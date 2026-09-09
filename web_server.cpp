@@ -18,6 +18,7 @@
 #include "light_timers.h"
 #include "mqtt_bridge.h"
 #include "ota_update.h"
+#include "remote_controls.h"
 #include "scenes.h"
 #include "web_hooks.h"
 #include "web_icons.h"
@@ -585,6 +586,41 @@ void handleMqttPost() {
 
 #endif  // MQTT_HOST
 
+// --- Remote controls -------------------------------------------------------------
+
+void handleRemotesGet() {
+  sendJson(200, remoteListJson());
+}
+
+void handleRemotePatch(const String &id) {
+  const String body = server.arg("plain");
+  String name;
+  if (!jsonGetString(body, "name", name) || name.length() == 0 ||
+      name.length() > 20 || !remoteRename(id, name.c_str())) {
+    sendJsonError(400, "invalid name or unknown remote");
+    return;
+  }
+  sendJson(200, "{\"ok\":true}");
+}
+
+void handleRemoteDelete(const String &id) {
+  if (!remoteRemove(id)) {
+    sendJsonError(404, "unknown remote");
+    return;
+  }
+  sendJson(200, "{\"ok\":true}");
+}
+
+void handleRemoteActionsPost() {
+  const String body = server.arg("plain");
+  String applied;
+  if (!remoteSetActions(body, applied)) {
+    sendJsonError(400, "invalid actions (see GET /api/remotes/actions)");
+    return;
+  }
+  sendJson(200, "{\"ok\":true,\"actions\":" + applied + "}");
+}
+
 // --- Backup / restore ------------------------------------------------------------
 
 void handleBackupGet() {
@@ -793,6 +829,31 @@ void dispatch() {
     }
   }
 #endif
+  if (uri == "/api/remotes/actions") {
+    if (method == HTTP_GET) {
+      sendJson(200, remoteActionsJson());
+      return;
+    }
+    if (method == HTTP_POST) {
+      handleRemoteActionsPost();
+      return;
+    }
+  }
+  if (uri == "/api/remotes" && method == HTTP_GET) {
+    handleRemotesGet();
+    return;
+  }
+  if (uri.startsWith("/api/remotes/")) {
+    const String rest = uri.substring(strlen("/api/remotes/"));
+    if (method == HTTP_PATCH) {
+      handleRemotePatch(rest);
+      return;
+    }
+    if (method == HTTP_DELETE) {
+      handleRemoteDelete(rest);
+      return;
+    }
+  }
   if (uri == "/api/backup" && method == HTTP_GET) {
     handleBackupGet();
     return;
