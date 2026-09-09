@@ -471,16 +471,28 @@ $('setBtn').onclick=async()=>{
    diagRows+=`<div>• <b>${esc(L.name)}</b> <span class="kv">· LQI ${L.debug.lqi}${rssi} · ${seen} · ${L.debug.cmd_sent} comandi${fail}</span></div>`;
   }
   $('diagList').innerHTML=diagRows||'(nessuna lampadina registrata)';
-  let remRows='';
-  for(const r of rems){
-   const visto=r.last_seen_s<0?'mai premuto':esc(r.last_event||'?')+' · '+r.last_seen_s+'s fa';
-   remRows+=`<div class="rrow"><button class="rname" data-id="${r.id}" data-name="${esc(r.name)}" title="Rinomina">${esc(r.name)}</button>
-    <span class="kv">${visto}</span>
-    <button class="rdel" data-id="${r.id}" data-name="${esc(r.name)}" title="Dimentica" aria-label="Dimentica telecomando">&#10005;</button></div>`;
-  }
-  $('remList').innerHTML=remRows||'(premi un pulsante del telecomando per associarlo)';
-  $('remList').querySelectorAll('.rname').forEach(b=>b.onclick=()=>remoteRenameDialog(b.dataset.id,b.dataset.name));
-  $('remList').querySelectorAll('.rdel').forEach(b=>b.onclick=()=>remoteDeleteDialog(b.dataset.id,b.dataset.name));
+   let remRows='';
+   for(const r of rems){
+    const visto=r.last_seen_s<0?'mai premuto':esc(r.last_event||'?')+' · '+r.last_seen_s+'s fa';
+    let bulbOpts='<option value="">— lampadina —</option>';
+    for(const L of ls) if(L.debug||true) bulbOpts+=`<option value="${L.id}">${esc(L.name)}</option>`;
+    remRows+=`<div class="rrow"><button class="rname" data-id="${r.id}" data-name="${esc(r.name)}" title="Rinomina">${esc(r.name)}</button>
+     <span class="kv">${visto}</span>
+     <button class="rdel" data-id="${r.id}" data-name="${esc(r.name)}" title="Dimentica" aria-label="Dimentica telecomando">&#10005;</button></div>
+     <div class="rrow" style="margin-left:20px"><select data-rbind="${r.id}" style="font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--txt)">${bulbOpts}</select>
+     <button class="rbind" data-id="${r.id}" data-name="${esc(r.name)}">Collega alla lampadina</button></div>`;
+   }
+   $('remList').innerHTML=remRows||'(premi un pulsante del telecomando per associarlo)';
+   $('remList').querySelectorAll('.rname').forEach(b=>b.onclick=()=>remoteRenameDialog(b.dataset.id,b.dataset.name));
+   $('remList').querySelectorAll('.rdel').forEach(b=>b.onclick=()=>remoteDeleteDialog(b.dataset.id,b.dataset.name));
+   $('remList').querySelectorAll('.rbind').forEach(b=>b.onclick=async()=>{
+    const sel=$('remList').querySelector(`select[data-rbind="${b.dataset.id}"]`);
+    if(!sel||!sel.value){toast('Scegli prima la lampadina');return}
+    try{
+     await api('/api/remotes/'+b.dataset.id+'/bind',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({light:sel.value})});
+     toast('Collegamento inviato: premi un tasto del telecomando');
+    }catch(e){toast('Errore: '+(e&&e.message||e))}
+   });
   fillActionMap(acts);
   $('genInfo').innerHTML=`Indirizzo: ${s.ip}<br>Rete: accedi a http://${esc(s.hostname)}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}`;
   $('hostIn').value=s.hostname;

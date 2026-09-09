@@ -589,6 +589,81 @@ void sendUnbindForCluster(const Bulb *bulb, uint16_t clusterId) {
   esp_zb_lock_release();
 }
 
+// --- Remote steering binding (remote -> bulb, direct control) -------------------
+//
+// After a factory reset an IKEA remote joins the network without bindings,
+// so its keys go nowhere. The coordinator answers with ZDO Bind requests
+// naming the bulb as the destination: from then on the remote steers the
+// bulb directly (on/off, level, color-temp steps), independent of the
+// coordinator. Requests are staggered and repeated a few cycles because the
+// remote sleeps most of the time and its parent buffers one frame.
+
+constexpr uint16_t REMOTE_BIND_CLUSTERS[] = {
+    ESP_ZB_ZCL_CLUSTER_ID_ON_OFF,
+    ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL,
+    ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL,
+};
+constexpr size_t REMOTE_BIND_CLUSTER_COUNT =
+    sizeof(REMOTE_BIND_CLUSTERS) / sizeof(REMOTE_BIND_CLUSTERS[0]);
+constexpr uint8_t REMOTE_BIND_CYCLES = 30;  // Full sweeps, ~110 s in total.
+
+struct RemoteBindJob {
+  bool used = false;
+  esp_zb_ieee_addr_t remoteIeee = {0};
+  uint16_t remoteShort = 0xFFFF;
+  uint8_t remoteEp = 1;
+  Bulb bulb;            // Destination (value copy).
+  size_t clusterIdx = 0;
+  uint8_t cycles = 0;   // Completed sweeps.
+};
+
+RemoteBindJob remoteBindJob;
+uint32_t lastRemoteBindMs = 0;
+
+void bindResponseStub(esp_zb_zdp_status_t status, void *) {
+  // Responses are advisory; a failure shows up when the remote ignores the
+  // keys. Log once per request for the web log tab.
+  if (status != ESP_ZB_ZDP_STATUS_SUCCESS) {
+    debugLogPrintf("Zigbee: bind request failed (status %d)\n", (int)status);
+  }
+}
+
+void sendRemoteBindCluster(const RemoteBindJob &job, uint16_t clusterId) {
+  esp_zb_zdo_bind_req_param_t req = {};  // Copied synchronously.
+  memcpy(req.src_address, job.remoteIeee, sizeof(esp_zb_ieee_addr_t));
+  req.src_endp = job.remoteEp;
+  req.cluster_id = clusterId;
+  req.dst_addr_mode = ESP_ZB_ZDO_BIND_DST_ADDR_MODE_64_BIT_EXTENDED;
+  memcpy(req.dst_address_u.addr_long, job.bulb.ieee, sizeof(esp_zb_ieee_addr_t));
+  req.dst_endp = job.bulb.endpoint != 0 ? job.bulb.endpoint : 1;
+  req.req_dst_addr = job.remoteShort;
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  debugLogPrintf("Zigbee: bind req -> remote ep %u cluster 0x%04x\n",
+                 job.remoteEp, clusterId);
+  esp_zb_zdo_device_bind_req(&req, bindResponseStub, nullptr);
+  esp_zb_lock_release();
+}
+
+void remoteBindTick(uint32_t now) {
+  if (!remoteBindJob.used) return;
+  if (now - lastRemoteBindMs < 1200) return;
+  lastRemoteBindMs = now;
+  if (remoteBindJob.clusterIdx >= REMOTE_BIND_CLUSTER_COUNT) {
+    ++remoteBindJob.cycles;
+    remoteBindJob.clusterIdx = 0;
+    if (remoteBindJob.cycles >= REMOTE_BIND_CYCLES) {
+      remoteBindJob.used = false;
+      debugLogPrintln(
+          "Zigbee: remote->bulb binding cycle done; wake the remote with a "
+          "key press.");
+      return;
+    }
+  }
+  sendRemoteBindCluster(remoteBindJob,
+                        REMOTE_BIND_CLUSTERS[remoteBindJob.clusterIdx]);
+  ++remoteBindJob.clusterIdx;
+}
+
 }  // namespace
 
 // --- Public API ----------------------------------------------------------------
@@ -596,6 +671,26 @@ void sendUnbindForCluster(const Bulb *bulb, uint16_t clusterId) {
 bool bulbReady(const Bulb *bulb) {
   return bulb != nullptr && bulb->online && bulb->shortAddr != 0xFFFF &&
          bulb->endpoint != 0;
+}
+
+bool zigbeeQueueRemoteBind(const esp_zb_ieee_addr_t remoteIeee,
+                           uint16_t remoteShort, uint8_t remoteEp,
+                           const Bulb *bulb) {
+  if (bulb == nullptr || !bulbReady(bulb)) return false;
+  if (remoteShort == 0xFFFF || remoteEp == 0) return false;
+  if (remoteBindJob.used) return false;
+  remoteBindJob = RemoteBindJob();
+  remoteBindJob.used = true;
+  memcpy(remoteBindJob.remoteIeee, remoteIeee, sizeof(esp_zb_ieee_addr_t));
+  remoteBindJob.remoteShort = remoteShort;
+  remoteBindJob.remoteEp = remoteEp;
+  remoteBindJob.bulb = *bulb;
+  remoteBindJob.clusterIdx = 0;
+  remoteBindJob.cycles = 0;
+  lastRemoteBindMs = millis() - 1200;  // First request on the next tick.
+  debugLogPrintf("Zigbee: queuing remote->bulb binding to %s ep %u\n",
+                 bulbIeeeHex(bulb).c_str(), remoteEp);
+  return true;
 }
 
 void zigbeeBegin() {
@@ -713,6 +808,9 @@ void zigbeeTick() {
 
   // Verify newly-bound devices (bulb vs remote/steering device).
   verifyTick(now);
+
+  // Remote -> bulb bind requests (staggered, repeated while the job lives).
+  remoteBindTick(now);
 
   // Group membership enrollment (staggered Add Group commands).
   groupTick(now);

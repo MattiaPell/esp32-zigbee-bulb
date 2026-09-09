@@ -63,6 +63,15 @@ void zigbeeRemoveDevice(Bulb *bulb);
 // registry through the report callbacks. Used at boot and by the UI.
 void zigbeeRefreshStates();
 
+// Queues a ZDO Bind (remote -> bulb) for the steering clusters (on/off,
+// level, color control). The bind requests are sent staggered from
+// zigbeeTick (the remote is a sleepy device: several cycles give it time
+// to pick them up while it polls). False if a job is already in flight
+// or the parameters are unusable.
+bool zigbeeQueueRemoteBind(const esp_zb_ieee_addr_t remoteIeee,
+                           uint16_t remoteShort, uint8_t remoteEp,
+                           const Bulb *bulb);
+
 // --- Per-bulb commands (no-ops for offline/unresolved bulbs) ---------------
 
 void bulbSendOn(Bulb *bulb);

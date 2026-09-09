@@ -174,6 +174,26 @@ remote configured to send to a Zigbee group is not captured. Renames are
 per-remote; the action map is global. To re-enroll a forgotten remote,
 factory-reset it and pair again.
 
+### Direct steering (remote → bulb, without the coordinator)
+
+After a factory reset a remote joins the network with no bindings, so its
+keys go nowhere. Two ways to fix that:
+
+1. **Coordinator relay (default)**: do nothing — presses arrive at the
+   coordinator and drive the default action map above.
+2. **Direct link**: bind the remote to a specific bulb so it steers it even
+   if the board is off. In **Impostazioni → Telecomandi** choose the bulb
+   and press **Collega alla lampadina** (or:
+
+```
+curl -X POST http://bulb.local/api/remotes/{id}/bind \
+     -H 'Content-Type: application/json' -d '{"light":"<bulb id>"}'
+```
+
+The coordinator sends ZDO Bind requests (on/off, level, color control)
+staggered over a few seconds; press a key on the remote to wake it so it
+accepts them. The web card keeps updating via state readback.
+
 The onboard status LED shows: blinking blue = Wi-Fi connecting, blinking
 purple = Zigbee starting, breathing amber = pairing window open / no bulbs,
 solid green = ready, fast red = startup error.
@@ -205,6 +225,7 @@ address in hex (stable across reboots).
 | GET    | `/api/remotes`      | paired Zigbee remotes/steering devices with the last press |
 | PATCH  | `/api/remotes/{id}` | `{"name":"..."}` renames a remote |
 | DELETE | `/api/remotes/{id}` | forgets a remote (factory-reset the remote to re-enroll) |
+| POST   | `/api/remotes/{id}/bind` | `{"light":"<bulb id>"}` queues ZDO Bind requests for direct steering (remote → bulb) |
 | GET    | `/api/remotes/actions` | the event → action map |
 | POST   | `/api/remotes/actions` | `{"toggle":"toggle_all","step_up":"brightness_up",...}` overrides the map |
 | GET    | `/api/backup`       | full configuration export as one JSON document |

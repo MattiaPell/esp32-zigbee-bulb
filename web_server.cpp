@@ -653,6 +653,20 @@ void handleRemoteDelete(const String &id) {
   sendJson(200, "{\"ok\":true}");
 }
 
+void handleRemoteBindPost(const String &id) {
+  const String body = server.arg("plain");
+  String light;
+  if (!jsonGetString(body, "light", light)) {
+    sendJsonError(400, "missing light");
+    return;
+  }
+  if (!remoteBindToLight(id, light)) {
+    sendJsonError(400, "unknown remote/light or remote never seen on the network");
+    return;
+  }
+  sendJson(200, "{\"ok\":true,\"message\":\"binding queued; press a key on the remote\"}");
+}
+
 void handleRemoteActionsPost() {
   const String body = server.arg("plain");
   String applied;
@@ -895,6 +909,10 @@ void dispatch() {
   }
   if (uri.startsWith("/api/remotes/")) {
     const String rest = uri.substring(strlen("/api/remotes/"));
+    if (method == HTTP_POST && rest.endsWith("/bind")) {
+      handleRemoteBindPost(rest.substring(0, rest.length() - strlen("/bind")));
+      return;
+    }
     if (method == HTTP_PATCH) {
       handleRemotePatch(rest);
       return;

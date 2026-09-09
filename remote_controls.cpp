@@ -196,6 +196,26 @@ void resolveNextRemote() {
         }
       }
       if (match == nullptr) return;
+      // Merge guard: a rejoin creates a second slot for the same remote
+      // (funny new short address). Prefer the already-named slot and free
+      // the duplicate instead of keeping two entries for one device.
+      Remote *older = nullptr;
+      for (size_t i = 0; i < MAX_REMOTES; ++i) {
+        if (remotes[i].used && &remotes[i] != match &&
+            memcmp(remotes[i].ieee, resp->ieee_addr,
+                   sizeof(esp_zb_ieee_addr_t)) == 0) {
+          older = &remotes[i];
+          break;
+        }
+      }
+      if (older != nullptr) {
+        older->shortAddr = resp->nwk_addr;
+        debugLogPrintf("Remote: merged %s onto new short 0x%04x\n", older->name,
+                      resp->nwk_addr);
+        match->used = false;
+        persistCount();
+        return;
+      }
       memcpy(match->ieee, resp->ieee_addr, sizeof(esp_zb_ieee_addr_t));
       for (size_t i = 0; i < MAX_REMOTES; ++i) {
         if (&remotes[i] == match) {
@@ -313,6 +333,64 @@ void recallSceneById(const uint8_t *data, size_t len) {
 }
 
 // --- Hook callbacks ------------------------------------------------------------------
+
+// Deferred bind: requested while the remote was asleep; fires when the
+// remote is finally seen with a known short address.
+struct PendingBind {
+  bool used = false;
+  esp_zb_ieee_addr_t remoteIeee = {0};
+  Bulb bulb;
+  uint8_t endpoint = 1;
+};
+PendingBind pendingBind;
+
+bool armBindOnFirstPress(const esp_zb_ieee_addr_t ieee, const Bulb &bulb,
+                         uint8_t endpoint) {
+  pendingBind = PendingBind();
+  pendingBind.used = true;
+  memcpy(pendingBind.remoteIeee, ieee, sizeof(esp_zb_ieee_addr_t));
+  pendingBind.bulb = bulb;
+  pendingBind.endpoint = endpoint;
+  debugLogPrintf(
+      "Remote: bind armed for %s -> %s; press a key to complete it.\n",
+      ieeeHexOf(ieee).c_str(), bulb.name);
+  return true;
+}
+
+// Fired from remotesTick: converts the deferred request into a queued
+// zigbee bind job once the remote's short address is known.
+void flushPendingBind() {
+  if (!pendingBind.used) return;
+  uint16_t shortAddr = 0xFFFF;
+  DeviceInfo net[14];
+  size_t n = zigbeeMemberSnapshot(net, 7);
+  n += zigbeeBoundSnapshot(net + n, 14 - n);
+  for (size_t i = 0; i < n; ++i) {
+    if (net[i].ieee[0] == 0 && net[i].ieee[7] == 0) continue;
+    if (memcmp(net[i].ieee, pendingBind.remoteIeee,
+               sizeof(esp_zb_ieee_addr_t)) == 0 &&
+        net[i].shortAddr != 0xFFFF && net[i].shortAddr != 0) {
+      shortAddr = net[i].shortAddr;
+      break;
+    }
+  }
+  if (shortAddr == 0xFFFF) {
+    // Not in the live snapshots: fall back to the registry entry; a press
+    // refreshes it through the duplicate-merge path.
+    Remote *r = findByIeee(pendingBind.remoteIeee);
+    if (r != nullptr && r->shortAddr != 0xFFFF) shortAddr = r->shortAddr;
+    if (shortAddr == 0xFFFF) return;  // Still asleep/unknown.
+  }
+  if (!zigbeeQueueRemoteBind(pendingBind.remoteIeee, shortAddr,
+                             pendingBind.endpoint, &pendingBind.bulb)) {
+    return;  // A job is already in flight; retry on a later tick.
+  }
+  Remote *r = findByIeee(pendingBind.remoteIeee);
+  if (r != nullptr) r->endpoint = pendingBind.endpoint;
+  pendingBind.used = false;
+  debugLogPrintf("Remote: deferred bind for %s -> %s now queued\n",
+                 r != nullptr ? r->name : "remote", pendingBind.bulb.name);
+}
 
 void onRemotePrivilegeCommand(const esp_zb_zcl_privilege_command_message_t *message) {
   if (message == nullptr || message->info.status != ESP_ZB_ZCL_STATUS_SUCCESS) return;
@@ -432,11 +510,12 @@ void remotesBegin() {
       if (value >= 0 && value < ACT_COUNT) actionMap[ev] = (uint8_t)value;
     }
   }
-  Serial.printf("Remotes: %u registered\n", (unsigned)count);
+  debugLogPrintf("Remotes: %u registered\n", (unsigned)count);
 }
 
 void remotesTick() {
   if (!Zigbee.started() || !Zigbee.connected()) return;
+  flushPendingBind();
   if (millis() - lastResolveMs < 2000) return;
   lastResolveMs = millis();
   resolveNextRemote();
@@ -466,9 +545,51 @@ bool remoteEnroll(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr,
       break;
     }
   }
-  Serial.printf("Remote: enrolled %s (0x%04x ep %u)\n", r->name, shortAddr,
+  debugLogPrintf("Remote: enrolled %s (0x%04x ep %u)\n", r->name, shortAddr,
                 endpoint);
   return true;
+}
+
+bool remoteBindToLight(const String &id, const String &bulbId) {
+  Remote *r = findByApiId(id);
+  if (r == nullptr) return false;
+  Bulb *b = nullptr;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    Bulb *cand = registryGet(i);
+    if (cand != nullptr && bulbIeeeHex(cand).equalsIgnoreCase(bulbId)) {
+      b = cand;
+      break;
+    }
+  }
+  if (b == nullptr) return false;
+
+  // The remote's short address changes at every rejoin: prefer the fresh
+  // value from the live network snapshots (matched by IEEE).
+  uint16_t shortAddr = r->shortAddr;
+  uint8_t endpoint = r->endpoint != 0 ? r->endpoint : 1;
+  DeviceInfo net[14];
+  size_t n = zigbeeMemberSnapshot(net, 7);
+  n += zigbeeBoundSnapshot(net + n, 14 - n);
+  for (size_t i = 0; i < n; ++i) {
+    if (net[i].ieee[0] == 0 && net[i].ieee[7] == 0) continue;
+    if (memcmp(net[i].ieee, r->ieee, sizeof(esp_zb_ieee_addr_t)) == 0 &&
+        net[i].shortAddr != 0xFFFF && net[i].shortAddr != 0) {
+      shortAddr = net[i].shortAddr;
+      break;
+    }
+  }
+  if (shortAddr == 0xFFFF) {
+    // The remote is asleep and unknown to the network: arm the bind so it
+    // fires automatically on the first press (which is also what wakes the
+    // remote and lets it accept the ZDO Bind requests).
+    return armBindOnFirstPress(r->ieee, *b, endpoint);
+  }
+  const bool ok = zigbeeQueueRemoteBind(r->ieee, shortAddr, endpoint, b);
+  if (ok) {
+    r->shortAddr = shortAddr;
+    r->endpoint = endpoint;
+  }
+  return ok;
 }
 
 String remoteListJson() {
