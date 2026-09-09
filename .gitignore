@@ -13,4 +13,5 @@ build/
 
 # Local tooling
 .codegraph/
-.omo/
+.omo
+.sisyphus/
