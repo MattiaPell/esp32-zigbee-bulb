@@ -370,7 +370,7 @@ void handleStatusGet() {  String j;
   j += otaRunningSlot();
   j += "\",\"pending_verify\":";
   j += otaPendingVerify() ? "true" : "false";
-  j += "}";
+  j += "}}";  // Close the nested "ota" object AND the root object.
   sendJson(200, j);
 }
 
