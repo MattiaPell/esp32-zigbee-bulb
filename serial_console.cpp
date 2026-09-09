@@ -5,6 +5,7 @@
 
 #include "bulb_registry.h"
 #include "config.h"
+#include "ota_update.h"
 #include "web_server.h"
 #include "zigbee_bulbs.h"
 
@@ -22,6 +23,7 @@ void printHelp() {
   Serial.println("  pair            open pairing for 180 seconds");
   Serial.println("  host <name>     change mDNS hostname");
   Serial.println("  status          Wi-Fi, bulbs, memory");
+  Serial.println("  version         firmware version and OTA slot");
   Serial.println("  reboot          restart the board");
   Serial.println("  reset           erase Zigbee network data and restart");
 }
@@ -70,6 +72,10 @@ void handleCommand(const String &line) {
       Serial.println("Invalid name. Use a-z, 0-9, '-', 1-31 characters.");
     }
   } else if (cmd == "status") printStatus();
+  else if (cmd == "version") {
+    Serial.printf("Firmware %s, slot %s, %s\n", FW_VERSION, otaRunningSlot(),
+                  otaPendingVerify() ? "pending verify" : "confirmed");
+  }
   else if (cmd == "reboot") ESP.restart();
   else if (cmd == "reset") {
     Serial.println("Erasing Zigbee NVRAM and restarting...");

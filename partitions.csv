@@ -1,13 +1,18 @@
-# Single-application 4 MB layout for ESP32-C6 with Zigbee (ZCZR).
-# Wi-Fi + Zigbee + the embedded web page need more than the stock
-# 1.25 MB application slot, so the factory app takes 2.5 MB.
-# There is no OTA slot: firmware updates are flashed over USB.
-# Name,     Type, SubType, Offset,  Size, Flags
-nvs,        data, nvs,     0x9000,  0x5000,
-otadata,    data, ota,     0xe000,  0x2000,
-app0,       app,  factory, 0x10000, 0x280000,
-spiffs,     data, spiffs,  0x290000,0x15A000,
-zb_storage, data, fat,     0x3EA000,0x4000,
-zb_fct,     data, fat,     0x3EE000,0x1000,
-rcp_fw,     data, spiffs,  0x3EF000,0x1000,
-coredump,   data, coredump,0x3F0000,0x10000,
+# Dual-slot OTA 4 MB layout for ESP32-C6 with Zigbee (ZCZR).
+# Two 1.875 MB application slots (ota_0/ota_1 + otadata) replace the old
+# single 2.5 MB factory app: the compiled firmware is ~1.56 MB, so both
+# slots fit with ~300 KB headroom each. The previously unused 1.375 MB
+# spiffs partition is gone (the web page is embedded in the sketch and all
+# state lives in NVS, which keeps its offset at 0x9000).
+# NOTE: upgrading from the old single-app layout moves the Zigbee storage
+# partitions, so the Zigbee network is rebuilt and bulbs must be re-paired
+# once. NVS (bulb registry, scenes, hostname) survives the switch.
+# Name,     Type, SubType,  Offset,   Size,
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x1E0000,
+app1,       app,  ota_1,    0x1F0000, 0x1E0000,
+zb_storage, data, fat,      0x3D0000, 0x4000,
+zb_fct,     data, fat,      0x3D4000, 0x1000,
+rcp_fw,     data, spiffs,   0x3D5000, 0x1000,
+coredump,   data, coredump, 0x3D6000, 0x2A000,
