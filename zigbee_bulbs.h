@@ -71,6 +71,7 @@ void zigbeeRefreshStates();
 bool zigbeeQueueRemoteBind(const esp_zb_ieee_addr_t remoteIeee,
                            uint16_t remoteShort, uint8_t remoteEp,
                            const Bulb *bulb);
+bool zigbeeRemoteBindBusy();
 
 // --- Per-bulb commands (no-ops for offline/unresolved bulbs) ---------------
 

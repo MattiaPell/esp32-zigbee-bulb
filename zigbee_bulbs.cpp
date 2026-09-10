@@ -668,6 +668,8 @@ void remoteBindTick(uint32_t now) {
 
 // --- Public API ----------------------------------------------------------------
 
+bool zigbeeRemoteBindBusy() { return remoteBindJob.used; }
+
 bool bulbReady(const Bulb *bulb) {
   return bulb != nullptr && bulb->online && bulb->shortAddr != 0xFFFF &&
          bulb->endpoint != 0;
@@ -677,7 +679,7 @@ bool zigbeeQueueRemoteBind(const esp_zb_ieee_addr_t remoteIeee,
                            uint16_t remoteShort, uint8_t remoteEp,
                            const Bulb *bulb) {
   if (bulb == nullptr || !bulbReady(bulb)) return false;
-  if (remoteShort == 0xFFFF || remoteEp == 0) return false;
+  if (remoteShort == 0xFFFF || remoteShort == 0 || remoteEp == 0) return false;
   if (remoteBindJob.used) return false;
   remoteBindJob = RemoteBindJob();
   remoteBindJob.used = true;

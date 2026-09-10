@@ -52,9 +52,14 @@ bool remoteRemove(const String &id);
 
 // Wires a freshly-reset remote to a light: queues ZDO Bind requests
 // (via zigbeeQueueRemoteBind) so the remote steers that bulb directly,
-// independent of the coordinator. False if unknown remote/bulb or the
+// independent of the coordinator. UNKNOWN if unknown remote/bulb or the
 // current short address of the remote is unknown (it wakes with a press).
-bool remoteBindToLight(const String &id, const String &bulbId);
+enum RemoteBindResult {
+  REMOTE_BIND_OK = 0,
+  REMOTE_BIND_UNKNOWN,
+  REMOTE_BIND_BUSY,
+};
+RemoteBindResult remoteBindToLight(const String &id, const String &bulbId);
 
 // --- Action map (global, persisted) -----------------------------------------
 

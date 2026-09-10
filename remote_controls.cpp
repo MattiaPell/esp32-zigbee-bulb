@@ -378,7 +378,8 @@ void flushPendingBind() {
     // Not in the live snapshots: fall back to the registry entry; a press
     // refreshes it through the duplicate-merge path.
     Remote *r = findByIeee(pendingBind.remoteIeee);
-    if (r != nullptr && r->shortAddr != 0xFFFF) shortAddr = r->shortAddr;
+    if (r != nullptr && r->shortAddr != 0xFFFF && r->shortAddr != 0)
+      shortAddr = r->shortAddr;
     if (shortAddr == 0xFFFF) return;  // Still asleep/unknown.
   }
   if (!zigbeeQueueRemoteBind(pendingBind.remoteIeee, shortAddr,
@@ -550,9 +551,9 @@ bool remoteEnroll(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr,
   return true;
 }
 
-bool remoteBindToLight(const String &id, const String &bulbId) {
+RemoteBindResult remoteBindToLight(const String &id, const String &bulbId) {
   Remote *r = findByApiId(id);
-  if (r == nullptr) return false;
+  if (r == nullptr) return REMOTE_BIND_UNKNOWN;
   Bulb *b = nullptr;
   for (size_t i = 0; i < registryCount(); ++i) {
     Bulb *cand = registryGet(i);
@@ -561,7 +562,7 @@ bool remoteBindToLight(const String &id, const String &bulbId) {
       break;
     }
   }
-  if (b == nullptr) return false;
+  if (b == nullptr) return REMOTE_BIND_UNKNOWN;
 
   // The remote's short address changes at every rejoin: prefer the fresh
   // value from the live network snapshots (matched by IEEE).
@@ -578,18 +579,19 @@ bool remoteBindToLight(const String &id, const String &bulbId) {
       break;
     }
   }
-  if (shortAddr == 0xFFFF) {
+  if (shortAddr == 0xFFFF || shortAddr == 0) {
     // The remote is asleep and unknown to the network: arm the bind so it
     // fires automatically on the first press (which is also what wakes the
     // remote and lets it accept the ZDO Bind requests).
-    return armBindOnFirstPress(r->ieee, *b, endpoint);
+    return armBindOnFirstPress(r->ieee, *b, endpoint) ? REMOTE_BIND_OK
+                                                      : REMOTE_BIND_UNKNOWN;
   }
-  const bool ok = zigbeeQueueRemoteBind(r->ieee, shortAddr, endpoint, b);
-  if (ok) {
-    r->shortAddr = shortAddr;
-    r->endpoint = endpoint;
-  }
-  return ok;
+  if (zigbeeRemoteBindBusy()) return REMOTE_BIND_BUSY;
+  if (!zigbeeQueueRemoteBind(r->ieee, shortAddr, endpoint, b))
+    return REMOTE_BIND_UNKNOWN;
+  r->shortAddr = shortAddr;
+  r->endpoint = endpoint;
+  return REMOTE_BIND_OK;
 }
 
 String remoteListJson() {

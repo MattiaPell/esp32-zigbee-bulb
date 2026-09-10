@@ -660,7 +660,12 @@ void handleRemoteBindPost(const String &id) {
     sendJsonError(400, "missing light");
     return;
   }
-  if (!remoteBindToLight(id, light)) {
+  const RemoteBindResult result = remoteBindToLight(id, light);
+  if (result == REMOTE_BIND_BUSY) {
+    sendJsonError(400, "another binding is already in progress; it ends on its own");
+    return;
+  }
+  if (result != REMOTE_BIND_OK) {
     sendJsonError(400, "unknown remote/light or remote never seen on the network");
     return;
   }
