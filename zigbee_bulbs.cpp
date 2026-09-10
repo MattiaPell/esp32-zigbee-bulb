@@ -619,16 +619,23 @@ struct RemoteBindJob {
 
 RemoteBindJob remoteBindJob;
 uint32_t lastRemoteBindMs = 0;
+// At most one outstanding bind request: every ZDO request holds a ZBOSS
+// buffer until its response (or a long ZDP timeout on the sleepy remote),
+// and sending faster asserts in the buffer pool (zb_bufpool_mult.c).
+volatile bool bindInFlight = false;
 
 void bindResponseStub(esp_zb_zdp_status_t status, void *) {
   // Responses are advisory; a failure shows up when the remote ignores the
   // keys. Log once per request for the web log tab.
+  bindInFlight = false;
   if (status != ESP_ZB_ZDP_STATUS_SUCCESS) {
     debugLogPrintf("Zigbee: bind request failed (status %d)\n", (int)status);
+  } else {
+    debugLogPrintln("Zigbee: bind request accepted");
   }
 }
 
-void sendRemoteBindCluster(const RemoteBindJob &job, uint16_t clusterId) {
+bool sendRemoteBindCluster(const RemoteBindJob &job, uint16_t clusterId) {
   esp_zb_zdo_bind_req_param_t req = {};  // Copied synchronously.
   memcpy(req.src_address, job.remoteIeee, sizeof(esp_zb_ieee_addr_t));
   req.src_endp = job.remoteEp;
@@ -637,15 +644,18 @@ void sendRemoteBindCluster(const RemoteBindJob &job, uint16_t clusterId) {
   memcpy(req.dst_address_u.addr_long, job.bulb.ieee, sizeof(esp_zb_ieee_addr_t));
   req.dst_endp = job.bulb.endpoint != 0 ? job.bulb.endpoint : 1;
   req.req_dst_addr = job.remoteShort;
-  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return false;
   debugLogPrintf("Zigbee: bind req -> remote ep %u cluster 0x%04x\n",
                  job.remoteEp, clusterId);
+  bindInFlight = true;
   esp_zb_zdo_device_bind_req(&req, bindResponseStub, nullptr);
   esp_zb_lock_release();
+  return true;
 }
 
 void remoteBindTick(uint32_t now) {
   if (!remoteBindJob.used) return;
+  if (bindInFlight) return;  // Wait for the response (ZDP timeout included).
   if (now - lastRemoteBindMs < 1200) return;
   lastRemoteBindMs = now;
   if (remoteBindJob.clusterIdx >= REMOTE_BIND_CLUSTER_COUNT) {
@@ -659,9 +669,9 @@ void remoteBindTick(uint32_t now) {
       return;
     }
   }
-  sendRemoteBindCluster(remoteBindJob,
-                        REMOTE_BIND_CLUSTERS[remoteBindJob.clusterIdx]);
-  ++remoteBindJob.clusterIdx;
+  bool sent = sendRemoteBindCluster(
+      remoteBindJob, REMOTE_BIND_CLUSTERS[remoteBindJob.clusterIdx]);
+  if (sent) ++remoteBindJob.clusterIdx;
 }
 
 }  // namespace
