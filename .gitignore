@@ -7,6 +7,10 @@ build/
 *.bin
 *.map
 
+# Host test binaries
+test/host_tests
+test/host_tests.exe
+
 # IDE
 .vscode/
 .idea/

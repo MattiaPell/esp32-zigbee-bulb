@@ -11,18 +11,25 @@
 
 // Find "key": in body; returns the value start position or (size_t)-1.
 inline size_t findJsonKey(const String &body, const char *key) {
-  // Tolerant to spaced-out JSON: find "key", skip whitespace, expect ':'.
+  // Tolerant to spaced-out JSON: find "key", skip whitespace, expect ':'. A
+  // string value that merely equals the key name (e.g. a bulb called "power")
+  // must not shadow the real key: keep scanning later occurrences.
   String needle = "\"";
   needle += key;
   needle += "\"";
-  int at = body.indexOf(needle);
-  if (at < 0) return (size_t)-1;
-  size_t pos = at + needle.length();
-  while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
-  if (pos >= body.length() || body[pos] != ':') return (size_t)-1;
-  ++pos;
-  while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
-  return pos;
+  unsigned int from = 0;
+  while (true) {
+    const int at = body.indexOf(needle, from);
+    if (at < 0) return (size_t)-1;
+    size_t pos = (size_t)at + needle.length();
+    while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
+    if (pos < body.length() && body[pos] == ':') {
+      ++pos;
+      while (pos < body.length() && isspace((unsigned char)body[pos])) ++pos;
+      return pos;
+    }
+    from = (unsigned int)at + 1;  // Not a key: try the next occurrence.
+  }
 }
 
 inline bool jsonGetBool(const String &body, const char *key, bool &out) {
