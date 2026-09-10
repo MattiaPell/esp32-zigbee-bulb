@@ -140,6 +140,11 @@ void handleLightPatch(const String &id) {
     return;
   }
 
+  // Transition override: 0 = cambio colore istantaneo (usato dal flash polizia).
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+
   // Rename works offline; anything that drives the bulb does not.
   static const char *controlKeys[] = {"on", "brightness", "kelvin", "rgb_hex", "mode"};
   for (const char *key : controlKeys) {
@@ -169,13 +174,13 @@ void handleLightPatch(const String &id) {
 
   long brightness;
   if (jsonGetInt(body, "brightness", brightness)) {
-    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), DEFAULT_TRANSITION_DS);
+    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
     changed = true;
   }
 
   long kelvin;
   if (jsonGetInt(body, "kelvin", kelvin)) {
-    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), DEFAULT_TRANSITION_DS);
+    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
     changed = true;
   }
 
@@ -184,7 +189,7 @@ void handleLightPatch(const String &id) {
     unsigned r = 0, g = 0, bl = 0;
     if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
     if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
-      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, DEFAULT_TRANSITION_DS);
+      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
       changed = true;
     } else {
       sendJsonError(400, "invalid rgb_hex");
@@ -195,10 +200,10 @@ void handleLightPatch(const String &id) {
   String mode;
   if (jsonGetString(body, "mode", mode)) {
     if (mode == "white") {
-      bulbSendKelvin(b, b->state.kelvin, DEFAULT_TRANSITION_DS);
+      bulbSendKelvin(b, b->state.kelvin, tds);
       changed = true;
     } else if (mode == "rgb") {
-      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, DEFAULT_TRANSITION_DS);
+      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
       changed = true;
     } else {
       sendJsonError(400, "invalid mode");
@@ -448,6 +453,10 @@ void handleLightsAllPatch() {
     return;
   }
 
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+
   if (hasOn && !on) {
     sendJson(200, "{\"applied\":" + String(bulbSendAllOff()) + "}");
     return;
@@ -457,11 +466,11 @@ void handleLightsAllPatch() {
   if (hasOn && on) applied = bulbSendAllOn();
   if (hasBrightness) {
     applied = bulbSendAllBrightness((uint8_t)constrain(brightness, 0, 100),
-                                    DEFAULT_TRANSITION_DS);
+                                    tds);
   }
   if (hasKelvin) {
     applied = bulbSendAllKelvin((int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN),
-                                DEFAULT_TRANSITION_DS);
+                                tds);
   }
   if (hasRgb) {
     if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
@@ -472,7 +481,7 @@ void handleLightsAllPatch() {
       return;
     }
     applied = bulbSendAllRgb((uint8_t)r, (uint8_t)g, (uint8_t)bl,
-                             DEFAULT_TRANSITION_DS);
+                             tds);
   }
   sendJson(200, "{\"applied\":" + String(applied) + "}");
 }
