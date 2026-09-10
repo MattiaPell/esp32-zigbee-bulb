@@ -63,7 +63,7 @@ inline String storedHostname() {
 // ---------------------------------------------------------------------------
 // Firmware / OTA
 // ---------------------------------------------------------------------------
-constexpr char FW_VERSION[] = "1.0.0";
+constexpr char FW_VERSION[] = "1.1.0";
 // After an OTA reboot the new slot stays "pending verify": the bootloader
 // rolls back to the previous slot if the board restarts before this grace
 // expires (survive the window = the image is confirmed valid).
