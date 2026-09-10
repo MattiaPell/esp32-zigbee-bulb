@@ -213,6 +213,7 @@ address in hex (stable across reboots).
 | GET    | `/api/pairing`      | `{"open":false,"seconds":180}` |
 | POST   | `/api/pairing`      | `{"seconds":180}` opens the network |
 | GET    | `/api/status`       | version, uptime, IP, RSSI, heap, bulb count, OTA slot and pending-verify state |
+| GET    | `/api/devices`      | live Zigbee network snapshot: every known device with its `ieee`, `short` address, `type` (`coordinator`/`router`/`end-device`/`bound`) and name when registered |
 | GET    | `/api/logs`         | in-RAM event log (last 100 lines: pairing, Zigbee commands, OTA, MQTT, webhooks); `?since=<index>` returns only newer lines; response `{"first":..,"lines":[{"i":..,"t":ms,"m":"text"},...]}`; lost on reboot |
 | DELETE | `/api/logs`         | clears the log buffer (line indexes keep increasing) |
 | POST   | `/api/ota`          | multipart firmware upload (`update=@file.bin`); optional `X-OTA-MD5` / `X-OTA-TOKEN` headers; reboots on success |
