@@ -88,6 +88,9 @@ void bulbSendKelvin(Bulb *bulb, int kelvin, uint16_t transitionDs);
 // RGB color, sent as CIE XY (converted with the library helper).
 void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitionDs);
 
+// Starts/stops the native ZCL color loop on the bulb (color models only).
+void bulbSendColorLoop(Bulb *bulb, bool on);
+
 // Kill switch: everything off, state persisted. Returns how many bulbs
 // were commanded (group frame counts as every reachable bulb).
 int bulbSendAllOff();

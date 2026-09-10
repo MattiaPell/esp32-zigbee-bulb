@@ -11,14 +11,17 @@
 #error "Copy secrets.example.h to secrets.h and enter your Wi-Fi credentials"
 #endif
 
+#include "adaptive.h"
 #include "bulb_registry.h"
 #include "config.h"
 #include "config_backup.h"
 #include "debug_log.h"
+#include "effects.h"
 #include "json_lite.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
 #include "ota_update.h"
+#include "presets.h"
 #include "remote_controls.h"
 #include "scenes.h"
 #include "web_hooks.h"
@@ -555,6 +558,66 @@ void handleSceneDelete(const String &nameIn) {
   sendJson(200, "{\"ok\":true}");
 }
 
+// --- Presets ------------------------------------------------------------------
+
+void handlePresetsGet() {
+  sendJson(200, presetsJson());
+}
+
+void handlePresetApply(const String &id) {
+  const int applied = presetApply(id);
+  if (applied < 0) {
+    sendJsonError(404, "unknown preset");
+    return;
+  }
+  sendJson(200, "{\"applied\":" + String(applied) + "}");
+}
+
+// --- Effects ------------------------------------------------------------------
+
+void handleEffectsGet() {
+  sendJson(200, effectsJson());
+}
+
+void handleEffectsPost() {
+  const String body = server.arg("plain");
+  String id;
+  if (!jsonGetString(body, "effect", id)) {
+    sendJsonError(400, "missing effect");
+    return;
+  }
+  if (!effectStart(id)) {
+    sendJsonError(400, "unknown effect or no reachable bulb");
+    return;
+  }
+  sendJson(200, "{\"active\":\"" + effectActive() + "\"}");
+}
+
+// --- Adaptive lighting --------------------------------------------------------
+
+void handleAdaptiveGet() {
+  sendJson(200, adaptiveStatusJson());
+}
+
+void handleAdaptivePost() {
+  const String body = server.arg("plain");
+  bool enabled = false;
+  long tz = 0;
+  const bool hasEnabled = jsonGetBool(body, "enabled", enabled);
+  const bool hasTz = jsonGetInt(body, "tz_offset_min", tz);
+  if (!hasEnabled && !hasTz) {
+    sendJsonError(400, "no recognized fields (enabled, tz_offset_min)");
+    return;
+  }
+  if (hasTz && (tz < -720 || tz > 840)) {
+    sendJsonError(400, "tz_offset_min out of range (-720..840)");
+    return;
+  }
+  if (hasEnabled) adaptiveSetEnabled(enabled);
+  if (hasTz) adaptiveSetTzOffsetMin((int)tz);
+  sendJson(200, adaptiveStatusJson());
+}
+
 // --- Webhooks -----------------------------------------------------------------
 
 void handleHooksGet() {
@@ -848,6 +911,30 @@ void dispatch() {
       handleSceneCapture(rest);  // Re-capture under the same name.
       return;
     }
+  }
+  if (uri == "/api/presets" && method == HTTP_GET) {
+    handlePresetsGet();
+    return;
+  }
+  if (uri.startsWith("/api/presets/") && method == HTTP_POST) {
+    handlePresetApply(uri.substring(strlen("/api/presets/")));
+    return;
+  }
+  if (uri == "/api/effects" && method == HTTP_GET) {
+    handleEffectsGet();
+    return;
+  }
+  if (uri == "/api/effects" && method == HTTP_POST) {
+    handleEffectsPost();
+    return;
+  }
+  if (uri == "/api/adaptive" && method == HTTP_GET) {
+    handleAdaptiveGet();
+    return;
+  }
+  if (uri == "/api/adaptive" && method == HTTP_POST) {
+    handleAdaptivePost();
+    return;
   }
   if (uri == "/api/logs" && method == HTTP_GET) {
     handleLogsGet();

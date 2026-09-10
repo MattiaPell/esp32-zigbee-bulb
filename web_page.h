@@ -16,10 +16,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(<!doctype html>
 <meta name="theme-color" content="#0e1116">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="manifest" href="/manifest.json">
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark')}catch(e){}</script>
 <title>esp32-zigbee-bulb</title>
 <style>
 :root{--bg:#0e1116;--card:#171c24;--card2:#1d242e;--txt:#e8ecf2;--mut:#8b95a5;
 --acc:#4da3ff;--ok:#37c26e;--bad:#e5534b;--warn:#e5a44b;--line:#252d3a}
+:root[data-theme="light"]{--bg:#f3f5f9;--card:#ffffff;--card2:#eceff4;--txt:#1b2330;--mut:#5a6676;
+--acc:#1f6feb;--ok:#1f9d55;--bad:#cf3b34;--warn:#a06a08;--line:#d8dee7}
 *{box-sizing:border-box;margin:0;padding:0}
 [hidden]{display:none!important}
 :focus-visible{outline:2px solid var(--acc);outline-offset:2px}
@@ -41,7 +44,7 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .sbadge{color:var(--acc);font-size:11px;padding:1px 8px}
 .sbadge.warn{color:var(--warn)}
 #lights{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-#sceneBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+#sceneBar,#presetBar,#effectBar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--card);border:1px solid var(--line);border-radius:12px}
 .stitle{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-right:4px}
 .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 12px;margin:2px}
 .chip.active{border-color:var(--acc);color:var(--acc)}
@@ -49,6 +52,7 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .chip button.del{background:none;border:none;padding:2px 6px;color:var(--mut)}
 .chip button.del:hover{color:var(--bad)}
 button.small{padding:5px 12px;font-size:13px}
+button.small.active{color:var(--acc);border-color:var(--acc)}
 .tmrleft{color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums}
 .logbox{font:11px/1.5 ui-monospace,Consolas,monospace;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px;height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:var(--txt);margin-top:8px}
 .tmr{background:none;border:none;color:var(--mut);padding:2px 6px;border-radius:8px;font-size:14px;margin-left:auto}
@@ -58,6 +62,10 @@ button.small{padding:5px 12px;font-size:13px}
 .card.on{box-shadow:inset 3px 0 0 var(--acc)}
 .card.offline{opacity:.55}
 .cardtop{display:flex;align-items:center;gap:8px}
+.drag{color:var(--mut);cursor:grab;display:inline-flex;align-items:center;padding:2px 3px;margin-right:-2px;border-radius:6px}
+.drag:active{cursor:grabbing}
+.card.dragging{opacity:.45}
+.card.dragover{outline:2px dashed var(--acc);outline-offset:2px}
 .bname{font-weight:600;font-size:16px;cursor:pointer;border:none;background:none;color:var(--txt);padding:2px 4px;border-radius:6px;text-align:left}
 .bname:hover{background:var(--card2)}
 .badge{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
@@ -111,6 +119,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <span class="spacer"></span>
   <button id="installBtn" class="primary" hidden>Installa app</button>
   <button id="pairBtn" class="primary">Aggiungi lampadina</button>
+  <button id="themeBtn" title="Tema" aria-label="Cambia tema"></button>
   <button id="setBtn" title="Impostazioni" aria-label="Impostazioni">&#9881;</button>
 </header>
 <div class="status" id="statusLine">
@@ -122,6 +131,14 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <span class="tmrleft" id="onCount"></span>
   <button id="masterTimer" class="small" title="Timer: spegni tutte">&#9201;&#65039;</button>
   <span class="tmrleft" id="masterTimerLeft" hidden></span>
+</div>
+<div id="presetBar">
+  <span class="stitle">Preset</span>
+  <span id="presetChips"></span>
+</div>
+<div id="effectBar">
+  <span class="stitle">Effetti</span>
+  <span id="effectChips"></span>
 </div>
 <div id="sceneBar">
   <span class="stitle">Scene</span>
@@ -147,6 +164,10 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
  <div id="t-gen">
   <label>Hostname mDNS</label><input type="text" id="hostIn" maxlength="31" pattern="[a-z0-9-]+">
   <div class="drow" style="justify-content:flex-start;margin-top:0"><button id="hostApply" class="small">Applica</button></div>
+  <label style="margin-top:10px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="adEnabled"> Illuminazione adattiva (segue l'ora del giorno)</label>
+  <label>Fuso orario (minuti da UTC, es. 60 o 120)</label><input type="number" id="adTz" min="-720" max="840" step="15">
+  <div class="drow" style="justify-content:flex-start"><button id="adApply" class="small">Applica</button></div>
+  <div class="kv" id="adInfo"></div>
   <div class="kv" id="genInfo"></div>
  </div>
  <div id="t-net" hidden><div class="kv" id="devList"></div></div>
@@ -182,9 +203,29 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],lastScene='';
+let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],presetsCache=[],effectState={active:'none',effects:[]},lastScene='';
 const ACT_LABELS={none:'Nessuna',all_on:'Tutte on',all_off:'Tutte off',toggle_all:'Toggle tutte',brightness_up:'Luminosità +',brightness_down:'Luminosità −',scene_next:'Scena succ.',scene_prev:'Scena prec.'};
 const EV_LABELS={on:'Tasto on',off:'Tasto off',toggle:'Centrale (toggle)',move_up:'Anello su',move_down:'Anello giù',stop:'Rilascio anello',step_up:'Step su',step_down:'Step giù',color_a:'Freccia/dir. A',color_b:'Freccia/dir. B'};
+
+// --- theme -----------------------------------------------------------------
+const ICON_SUN='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const ICON_MOON='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+function applyTheme(t){document.documentElement.dataset.theme=t;try{localStorage.setItem('theme',t)}catch(e){}const b=$('themeBtn');if(b){b.innerHTML=(t==='light')?ICON_MOON:ICON_SUN;b.title=(t==='light')?'Tema scuro':'Tema chiaro'}}
+applyTheme(document.documentElement.dataset.theme==='light'?'light':'dark');
+$('themeBtn').onclick=()=>applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+
+// --- card order (drag & drop) ----------------------------------------------
+let bulbOrder=[];try{bulbOrder=JSON.parse(localStorage.getItem('bulbOrder')||'[]')}catch(e){bulbOrder=[]}
+let draggedId=null;
+function applyOrder(){const pos=id=>{const i=bulbOrder.indexOf(id);return i<0?1e9:i};lights.sort((a,b)=>pos(a.id)-pos(b.id))}
+function reorderCards(fromId,toId){
+ const ids=Array.from(document.querySelectorAll('#lights .card')).map(c=>c.dataset.id);
+ const from=ids.indexOf(fromId),to=ids.indexOf(toId);
+ if(from<0||to<0||from===to)return;
+ ids.splice(to,0,ids.splice(from,1)[0]);
+ bulbOrder=ids;try{localStorage.setItem('bulbOrder',JSON.stringify(ids))}catch(e){}
+ lastSig='';render();
+}
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
@@ -194,6 +235,8 @@ async function load(){
  try{
   lights=await api('/api/lights');
   scenesCache=await api('/api/scenes');
+  presetsCache=await api('/api/presets');
+  effectState=await api('/api/effects');
   const s=await api('/api/status');
   $('sdot').className='dot '+(s.wifi?'on':'off');
   const heap=(s.free_heap/1024).toFixed(0);
@@ -207,6 +250,8 @@ async function load(){
   if(timerAllCache>0){mt.hidden=false;mt.textContent='⏳ '+fmtT(timerAllCache)}
   else mt.hidden=true;
   renderScenes();
+  renderPresets();
+  renderEffects();
   render();
  }catch(e){}
 }
@@ -232,6 +277,44 @@ function renderScenes(){
   chip.append(play,nm,del);box.append(chip);
  }
  paintSceneActive();
+}
+
+function renderPresets(){
+ const box=$('presetChips');
+ const sig=presetsCache.map(p=>p.id).join('|');
+ if(sig===box.dataset.sig)return;
+ box.dataset.sig=sig;box.innerHTML='';
+ for(const p of presetsCache){
+  const b=document.createElement('button');b.className='small';b.textContent=p.name;
+  b.title='Luminosità '+p.brightness+'% · '+p.kelvin+' K';
+  b.onclick=async()=>{const r=await api('/api/presets/'+p.id,{method:'POST'});toast('Preset «'+p.name+'»: '+r.applied+' lampadine')};
+  box.append(b);
+ }
+}
+
+function renderEffects(){
+ const box=$('effectChips');
+ const sig=effectState.effects.join('|');
+ if(sig!==box.dataset.sig){
+  box.dataset.sig=sig;box.innerHTML='';
+  for(const e of effectState.effects){
+   const b=document.createElement('button');b.className='small';b.dataset.effect=e;
+   b.textContent=e==='candle'?'Candela':(e==='color_loop'?'Color loop':e);
+   b.onclick=()=>setEffect(effectState.active===e?'none':e);
+   box.append(b);
+  }
+ }
+ paintEffects();
+}
+
+function paintEffects(){
+ const box=$('effectChips');
+ for(const b of box.children)if(b.dataset.effect)b.classList.toggle('active',b.dataset.effect===effectState.active);
+}
+
+async function setEffect(id){
+ const r=await api('/api/effects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({effect:id})});
+ effectState.active=r.active;paintEffects();toast('Effetto: '+(r.active==='none'?'nessuno':r.active));
 }
 
 function paintSceneActive(){
@@ -265,6 +348,7 @@ function markEdit(id,field,ms=1200){modeCache[id]={f:field,t:Date.now()+ms}}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}
 
 function render(){
+ applyOrder();
  const box=$('lights');
  $('masterRow').classList.toggle('off',!lights.length);
  const on=lights.filter(l=>l.on).length;
@@ -281,6 +365,7 @@ function render(){
   for(const L of lights){
    h+=`<section class="card${L.online?'':' offline'}" data-id="${L.id}">
     <div class="cardtop">
+     <span class="drag" title="Trascina per riordinare" aria-label="Riordina"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.4"/><circle cx="9" cy="3" r="1.4"/><circle cx="3" cy="8" r="1.4"/><circle cx="9" cy="8" r="1.4"/><circle cx="3" cy="13" r="1.4"/><circle cx="9" cy="13" r="1.4"/></svg></span>
      <button class="bname" title="Rinomina">${esc(L.name)}</button>
      <span class="badge${L.online?' on':''}">${L.online?'online':'offline'}</span>
      <span class="tmrleft" hidden></span>
@@ -385,6 +470,16 @@ function bindCard(card){
  col.onchange=()=>api('/api/lights/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb_hex:col.value})}).then(refreshSoon);
 
  card.querySelector('.tmr').onclick=()=>timerDialog(id,L().name);
+
+ const handle=card.querySelector('.drag');
+ if(handle){
+  handle.draggable=true;
+  handle.addEventListener('dragstart',e=>{draggedId=id;card.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',id)}catch(_){}});
+  handle.addEventListener('dragend',()=>{card.classList.remove('dragging');document.querySelectorAll('#lights .card.dragover').forEach(c=>c.classList.remove('dragover'))});
+ }
+ card.addEventListener('dragover',e=>{if(!draggedId||draggedId===id)return;e.preventDefault();e.dataTransfer.dropEffect='move';card.classList.add('dragover')});
+ card.addEventListener('dragleave',()=>card.classList.remove('dragover'));
+ card.addEventListener('drop',e=>{e.preventDefault();card.classList.remove('dragover');if(!draggedId||draggedId===id)return;const from=draggedId;draggedId=null;reorderCards(from,id)});
 }
 
 function refreshSoon(){clearTimeout(pollTimer);pollTimer=setTimeout(load,400)}
@@ -445,14 +540,23 @@ $('hostApply').onclick=async()=>{
  toast('Hostname: '+v+'.local');
 };
 
+function adSyncedText(ad){return ad.synced?('ora '+ad.local+' · target '+ad.kelvin+' K / '+ad.brightness+'%'):'in attesa di NTP (servono Wi-Fi e rete)';}
+$('adApply').onclick=async()=>{
+ const body={enabled:$('adEnabled').checked,tz_offset_min:parseInt($('adTz').value,10)||0};
+ const r=await api('/api/adaptive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ $('adInfo').textContent=adSyncedText(r);
+ toast('Adattiva: '+(r.enabled?'attiva':'spenta'));
+};
+
 $('setBtn').onclick=async()=>{
  try{
-  const [s,devs,ls,rems,acts]=await Promise.all([
+  const [s,devs,ls,rems,acts,ad]=await Promise.all([
    api('/api/status'),
    api('/api/devices').catch(()=>[]),
    api('/api/lights?debug=1').catch(()=>[]),
    api('/api/remotes').catch(()=>[]),
-   api('/api/remotes/actions').catch(()=>({}))
+   api('/api/remotes/actions').catch(()=>({})),
+   api('/api/adaptive').catch(()=>({}))
   ]);
   let devRows='';
   for(const d of devs){
@@ -496,6 +600,7 @@ $('setBtn').onclick=async()=>{
   fillActionMap(acts);
   $('genInfo').innerHTML=`Indirizzo: ${s.ip}<br>Rete: accedi a http://${esc(s.hostname)}.local/<br>Uptime: ${Math.floor(s.uptime_s/3600)}h ${Math.floor(s.uptime_s%3600/60)}m<br>Heap libero: ${(s.free_heap/1024).toFixed(0)} kB<br>RSSI Wi-Fi: ${s.rssi} dBm<br>Versione: ${s.version}`;
   $('hostIn').value=s.hostname;
+  if(ad&&ad.enabled!==undefined){$('adEnabled').checked=!!ad.enabled;$('adTz').value=ad.tz_offset_min??60;$('adInfo').textContent=adSyncedText(ad);}
   $('otaMsg').textContent='';
   switchTab('gen');
   $('cfg').showModal();

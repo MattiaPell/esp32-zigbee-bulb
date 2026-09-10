@@ -20,9 +20,11 @@
 #error "Select Tools > Zigbee mode > Zigbee ZCZR (coordinator/router)"
 #endif
 
+#include "adaptive.h"
 #include "bulb_registry.h"
 #include "config.h"
 #include "debug_log.h"
+#include "effects.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
 #include "ota_update.h"
@@ -76,6 +78,8 @@ void setup() {
   registryBegin();
   scenesBegin();
   lightTimersBegin();
+  effectsBegin();
+  adaptiveBegin();
   remotesBegin();  // Registered Zigbee remotes/steering devices.
   powerButtonBegin(onKillSwitch);
 
@@ -108,6 +112,8 @@ void loop() {
   powerButtonTick();
   zigbeeTick();
   lightTimersTick();
+  effectsTick();
+  adaptiveTick();
   registryTick();
   otaTick();
   webHooksTick();

@@ -89,3 +89,4 @@ constexpr uint16_t MQTT_PING_EVERY_MS = 25000;    // PINGREQ period (in ms)
 constexpr uint16_t MQTT_REPUBLISH_MS = 100;       // State push rate limit
 constexpr uint32_t MQTT_CONNECT_BACKOFF_MS = 5000;  // First reconnect delay
 constexpr uint32_t MQTT_RECONNECT_MAX_MS = 60000;   // Reconnect backoff cap
+constexpr uint32_t MQTT_DIAG_EVERY_MS = 60000;      // Diagnostic republish period

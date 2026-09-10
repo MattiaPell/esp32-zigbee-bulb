@@ -201,6 +201,7 @@ void verifyTick(uint32_t now) {
           if (job->shortAddr != 0xFFFF) added->shortAddr = job->shortAddr;
           if (job->endpoint != 0) added->endpoint = job->endpoint;
           debugLogPrintln("Zigbee: verified bound device is a light: registered.");
+          webHookEvent("bulb_joined", bulbIeeeHex(added).c_str(), added->name);
         }
       } else if (isRemote) {
         remoteEnroll(job->ieee, job->shortAddr, job->endpoint);
@@ -749,6 +750,9 @@ size_t zigbeeBoundDeviceCount() {
 
 void zigbeeRemoveDevice(Bulb *bulb) {
   if (bulb == nullptr) return;
+  const String ieee = bulbIeeeHex(bulb);
+  char name[sizeof(bulb->name)];
+  strlcpy(name, bulb->name, sizeof(name));
   sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
   sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL);
   sendUnbindForCluster(bulb, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL);
@@ -761,6 +765,7 @@ void zigbeeRemoveDevice(Bulb *bulb) {
 
   groupForget(bulb);  // Tell the bulb to leave the group (fire and forget).
   registryRemove(bulb);
+  webHookEvent("bulb_removed", ieee.c_str(), name);
 }
 
 void zigbeeRefreshStates() {
@@ -927,6 +932,24 @@ void bulbSendRgb(Bulb *bulb, uint8_t r, uint8_t g, uint8_t b, uint16_t transitio
   bulb->state.green = g;
   bulb->state.blue = b;
   registryMarkDirty();
+}
+
+void bulbSendColorLoop(Bulb *bulb, bool on) {
+  if (!bulbReady(bulb)) return;
+  esp_zb_zcl_color_color_loop_set_cmd_t cmd = {};
+  cmd.zcl_basic_cmd.src_endpoint = BULB_ENDPOINT;
+  cmd.zcl_basic_cmd.dst_endpoint = bulb->endpoint;
+  cmd.zcl_basic_cmd.dst_addr_u.addr_short = bulb->shortAddr;
+  cmd.address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT;
+  cmd.update_flags = 0x07;  // Update action + direction + time.
+  cmd.action = on ? 0x01 : 0x00;
+  cmd.direction = 0x01;  // Increment hue.
+  cmd.time = 25;         // Full loop in 25 s.
+  cmd.start_hue = 0;
+  sendRawCommand([](void *p) {
+    esp_zb_zcl_color_color_loop_set_cmd_req(
+        (esp_zb_zcl_color_color_loop_set_cmd_t *)p);
+  }, &cmd);
 }
 
 void zigbeeRequestMembers() {
