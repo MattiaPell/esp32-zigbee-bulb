@@ -6,6 +6,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "debug_log.h"
+#include "web_hooks.h"
 
 namespace {
 
@@ -83,6 +84,9 @@ void otaUploadStart(const String &md5Hex) {
   if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
     result = OtaResult::BeginFailed;
     debugLogPrintf("OTA: begin failed: %s\n", Update.errorString());
+    char detail[48];
+    snprintf(detail, sizeof(detail), "begin: %s", Update.errorString());
+    webHookEvent("ota_failed", "", "", detail);
     return;
   }
   if (md5Hex.length() == 32) {
@@ -95,6 +99,7 @@ void otaUploadStart(const String &md5Hex) {
 
 void otaUploadReject() {
   result = OtaResult::Rejected;
+  webHookEvent("ota_rejected", "", "", "token");
 }
 
 void otaUploadWrite(uint8_t *data, size_t len) {
@@ -105,6 +110,9 @@ void otaUploadWrite(uint8_t *data, size_t len) {
     Update.abort();
     debugLogPrintf("OTA: write failed after %u bytes: %s\n",
                   (unsigned)bytesWritten, Update.errorString());
+    char detail[48];
+    snprintf(detail, sizeof(detail), "write: %s", Update.errorString());
+    webHookEvent("ota_failed", "", "", detail);
     return;
   }
   bytesWritten += written;
@@ -116,12 +124,18 @@ void otaUploadEnd() {
     result = OtaResult::FinishFailed;
     debugLogPrintf("OTA: finish failed after %u bytes: %s\n",
                   (unsigned)bytesWritten, Update.errorString());
+    char detail[48];
+    snprintf(detail, sizeof(detail), "finish: %s", Update.errorString());
+    webHookEvent("ota_failed", "", "", detail);
     return;
   }
   result = OtaResult::Done;
   rebootAtMs = millis() + OTA_REBOOT_DELAY_MS;
   debugLogPrintf("OTA: %u bytes written and verified; boot switch set\n",
                 (unsigned)bytesWritten);
+  char detail[24];
+  snprintf(detail, sizeof(detail), "%u bytes", (unsigned)bytesWritten);
+  webHookEvent("ota_success", "", "", detail);
 }
 
 void otaUploadAbort() {

@@ -5,6 +5,7 @@
 > ⚠️ **Work in progress** — this project is under active development and may
 > contain bugs or change without notice. Do not rely on it for anything
 > critical, and read the release notes before updating a working install.
+> See [CHANGELOG.md](CHANGELOG.md) for what changed.
 
 A standalone web controller for IKEA Zigbee bulbs, built on an ESP32-C6.
 The board forms its own Zigbee network, pairs any number of bulbs, and
@@ -19,9 +20,17 @@ Features:
 - on/off, brightness, white temperature (2200–4000 K) and RGB color per bulb;
 - **named scenes**: capture the current state of every bulb under a name
   and recall it later (persisted in NVS);
+- **quick presets**: built-in one-tap looks (relax / focus / notte) that set
+  every bulb to a fixed brightness and white temperature;
+- **effects**: a native ZCL color loop on color bulbs, and a warm "candle"
+  flicker driven by short collective transitions;
+- **adaptive lighting** (optional): with NTP and a UTC offset, white
+  temperature and brightness follow a circadian curve;
 - **off timers**: schedule any (or all) bulbs to turn off in a few minutes;
 - **installable app**: the control page is a PWA with its own icon —
   "Add to home screen" and it runs fullscreen like a native app;
+- light/dark theme and drag-to-reorder bulb cards (the order is kept in the
+  browser);
 - light state (power, brightness, white tone or color) restored after a
   reboot or power cut, then reconciled with what the bulbs actually report;
 - automatic pairing while no bulb is bound, or on demand from the UI;
@@ -64,6 +73,19 @@ other boards.
 No other dependencies: the web page is embedded, JSON is hand-rolled, the
 MQTT client is hand-rolled too (the only extra core library in use is
 HTTPClient, shipped with the ESP32 Arduino core, for webhooks).
+
+## Tests
+
+Pure logic (the hand-rolled JSON reader in `json_lite.h`, plus other
+header-only helpers) is covered by host-side unit tests under `test/` — no
+ESP32 toolchain, no hardware, just a C++17 compiler:
+
+```sh
+bash test/run.sh                 # Linux/macOS/CI (g++ by default; CXX=... to change)
+powershell -File test/run.ps1    # Windows (g++, clang++ or zig in PATH)
+```
+
+CI runs them on every push and pull request (the `host-tests` job).
 
 ## Configure and flash
 
@@ -237,6 +259,12 @@ address in hex (stable across reboots).
 | PATCH  | `/api/scenes/{name}`| re-captures (updates) an existing scene |
 | POST   | `/api/scenes/{name}/recall` | applies the stored states |
 | DELETE | `/api/scenes/{name}` | forgets a scene |
+| GET    | `/api/presets`      | built-in quick looks (`relax`, `focus`, `notte`) with their brightness and kelvin |
+| POST   | `/api/presets/{id}` | applies a preset to every reachable bulb |
+| GET    | `/api/effects`      | `{"active":..,"effects":["candle","color_loop"]}` |
+| POST   | `/api/effects`      | `{"effect":"candle"}` / `{"effect":"color_loop"}` / `{"effect":"none"}` starts or stops an effect |
+| GET    | `/api/adaptive`     | adaptive state: `enabled`, `synced`, `tz_offset_min`, and (once synced) `local`, `kelvin`, `brightness` |
+| POST   | `/api/adaptive`     | `{"enabled":true}` and/or `{"tz_offset_min":120}` configures adaptive lighting |
 | POST   | `/api/lights/{id}/timer` | `{"seconds":600}` turns that bulb off after the delay (0 cancels) |
 | POST   | `/api/timer`        | same, for every bulb (the deadline lives only in RAM: a reboot clears it) |
 
@@ -257,6 +285,16 @@ Scene names are restricted to lowercase letters, digits, `-` and `_`
 (max 20 characters) because they appear in URL paths. Recalling a scene
 skips bulbs that are offline or were not part of the scene (e.g. paired
 after it was captured).
+
+Effects run on the coordinator and are runtime-only (a reboot clears them,
+like the off-timers). `color_loop` needs color bulbs; `candle` fades every
+reachable bulb through warm white between 2200 K and 2600 K. Turning all the
+bulbs off ends the active effect.
+
+Adaptive lighting needs a working NTP path (Wi-Fi plus internet). It only
+adjusts bulbs that are on and in white mode (RGB scenes are left alone) and
+pauses while an effect runs; the UTC offset is fixed (no automatic DST), so
+adjust it when the clocks change.
 
 ## Serial console
 
@@ -289,8 +327,11 @@ result, more latency. Remove a bulb and it is told to leave the group.
 ## Webhook events
 
 The controller can POST a JSON body to up to three external URLs on these
-events: `boot`, `bulb_online`, `bulb_offline`, `timer_expired`,
-`scene_applied` (and `test`, via `/api/hooks/test`). Example body:
+events: `boot`, `bulb_joined`, `bulb_removed`, `bulb_online`, `bulb_offline`,
+`timer_expired`, `scene_applied`, `preset_applied`, `remote_pressed`,
+`remote_bind_result`
+(`detail` = `queued` / `armed`), `ota_success`, `ota_failed` and
+`ota_rejected` (and `test`, via `/api/hooks/test`). Example body:
 
 ```json
 {"event":"bulb_offline","bulb":"a4c138d0e0b12c34","name":"Salotto",
@@ -332,13 +373,19 @@ Topics (id = bulb IEEE address in hex):
 | `bulbctl/<id>/availability` | retained `online`/`offline` per bulb |
 | `bulbctl/<id>/set` | commands: `{"state":"ON","brightness":128,"color_temp":370,"color":{"r":255,"g":0,"b":0}}` (fields are optional) |
 | `bulbctl/all/set` | same, applied to every bulb as one collective command |
+| `bulbctl/<id>/lqi` | retained link quality (0–255) |
+| `bulbctl/<id>/rssi` | retained RSSI (dBm) |
+| `bulbctl/<id>/last_seen` | retained seconds since the bulb last reported |
 
 With `MQTT_DISCOVERY=1` each bulb publishes a retained Home Assistant
 discovery config on
 `homeassistant/light/bulbctl-<hostname>-<id>/light/config`, so the lights
 appear automatically (brightness, color temperature and RGB as reported by
-the bulb). Delete a bulb and its discovery entry goes stale: clear it from
-HA, or set `MQTT_DISCOVERY=0` and use the topics manually.
+the bulb). The controller itself is exposed as a connectivity binary_sensor
+(also the `via_device` of every bulb), and each bulb gets three diagnostic
+sensors (LQI, RSSI, seconds since last seen). Delete a bulb and its
+discovery entry goes stale: clear it from HA, or set `MQTT_DISCOVERY=0` and
+use the topics manually.
 
 `GET`/`POST /api/mqtt` toggles the bridge at runtime. Limitations: QoS 0
 only (no PUBACK tracking), plain TCP (put the broker on the LAN, or use a
@@ -367,6 +414,36 @@ one by one — but restore **before** re-pairing: when a bulb with a restored
 IEEE address joins, it comes back already named, with its stored state and
 its scene memberships. To push the restored states to the bulbs, recall a
 scene or send commands afterwards.
+
+## Known limitations
+
+- **Remotes bound to a Zigbee group are not captured.** Button presses are
+  intercepted only when the remote sends them to the coordinator endpoint
+  (the usual pairing). A remote already configured to address a group keeps
+  steering those bulbs, but the coordinator sees nothing: the action map and
+  `remote_pressed` do not fire. Re-pair the remote (factory reset) to use the
+  coordinator relay, or bind it directly to a bulb from the settings dialog.
+- **Off-timers and effects are runtime-only.** They live in RAM and are lost
+  on reboot or power cut (a power cut must not turn lights off hours later).
+- **Adaptive lighting uses a fixed UTC offset** (no automatic DST), so adjust
+  it when the clocks change; it needs a working NTP path.
+- **`candle` is a coordinator-side simulation**, not a bulb-native effect: it
+  steps brightness and white temperature with short transitions.
+  `color_loop` uses the native ZCL command and needs color bulbs.
+- **MQTT is QoS 0 over plain TCP** (no TLS), and `https://` webhook targets
+  are not certificate-verified (no CA store on the device): keep both on a
+  trusted LAN.
+- **The web server is single-threaded**: during a multipart OTA upload no
+  other request is served, and long handlers block the loop.
+- **`POST /api/ota` is for a trusted LAN only** (define `OTA_TOKEN` in
+  `secrets.h` to require a token).
+
+## Roadmap
+
+- Capture group-addressed remote presses (needs a Groups server cluster on
+  the coordinator endpoint and testing on real hardware).
+- DST-aware time zones and per-day overrides for adaptive lighting.
+- Surface the effect list in the serial console.
 
 ## Credits
 

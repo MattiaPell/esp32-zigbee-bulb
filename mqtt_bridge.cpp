@@ -53,6 +53,7 @@ uint32_t nextConnectAtMs = 0;
 uint8_t connectAttempts = 0;
 uint32_t lastPingMs = 0;
 uint32_t lastPublishMs = 0;
+uint32_t lastDiagMs = 0;
 
 String inBuf;
 
@@ -129,36 +130,63 @@ String stateJson(const Bulb *b) {
   return j;
 }
 
+String bridgeUid() {
+  return String(MQTT_PREFIX) + "-" + storedHostname();
+}
+
+String bulbUid(const Bulb *b) {
+  return bridgeUid() + "-" + bulbIeeeHex(b);
+}
+
+void appendBridgeDevice(String &j) {
+  j += "\"device\":{\"identifiers\":[\"";
+  j += bridgeUid();
+  j += "\"],\"name\":\"";
+  j += storedHostname();
+  j += "\",\"manufacturer\":\"MattiaPell\",\"model\":\"esp32-zigbee-bulb\",\"sw_version\":\"";
+  j += FW_VERSION;
+  j += "\"}";
+}
+
+void appendBulbDevice(String &j, const Bulb *b) {
+  j += "\"device\":{\"identifiers\":[\"";
+  j += bulbUid(b);
+  j += "\"],\"name\":\"";
+  j += b->name;
+  j += "\",\"manufacturer\":\"IKEA\",\"via_device\":\"";
+  j += bridgeUid();
+  j += "\"}";
+}
+
+// Availability shared by every entity: bulb and bridge must both be online.
+void appendAvailability(String &j, const Bulb *b) {
+  j += "\"availability\":[{\"topic\":\"";
+  j += topicForBulb(b, "/availability");
+  j += "\"},{\"topic\":\"";
+  j += willTopic;
+  j += "\"}],\"availability_mode\":\"all\",\"payload_available\":\"online\",\"payload_not_available\":\"offline\"";
+}
+
 String discoveryJson(const Bulb *b) {
-  const String id = bulbIeeeHex(b);
-  const String uid = String(MQTT_PREFIX) + "-" + storedHostname() + "-" + id;
   const bool rgb = b->state.mode == BulbColorMode::Rgb;
 
   String j;
-  j.reserve(620);
+  j.reserve(700);
   j += "{\"name\":\"";
   j += b->name;
   j += "\",\"unique_id\":\"";
-  j += uid;
+  j += bulbUid(b);
   j += "\",\"state_topic\":\"";
   j += topicForBulb(b, "/state");
   j += "\",\"command_topic\":\"";
   j += topicForBulb(b, "/set");
-  j += "\",\"brightness\":true,\"color_mode\":true,\"supported_color_modes\":[";
+  j += "\",\"brightness\":true,\"brightness_scale\":255,\"color_mode\":true,\"supported_color_modes\":[";
   j += rgb ? "\"color_temp\",\"rgb\"" : "\"color_temp\"";
-  j += "],\"min_mireds\":250,\"max_mireds\":455";
-  j += ",\"availability\":[{\"topic\":\"";
-  j += topicForBulb(b, "/availability");
-  j += "\"},{\"topic\":\"";
-  j += topicFor(willTopic.c_str() + strlen(MQTT_PREFIX));
-  j += "\"}],\"payload_available\":\"online\",\"payload_not_available\":\"offline\"";
-  j += ",\"device\":{\"identifiers\":[\"";
-  j += uid;
-  j += "\"],\"name\":\"";
-  j += b->name;
-  j += "\",\"manufacturer\":\"IKEA\",\"via_device\":\"";
-  j += String(MQTT_PREFIX) + "-" + storedHostname();
-  j += "\"}}";
+  j += "],\"min_mireds\":250,\"max_mireds\":455,";
+  appendAvailability(j, b);
+  j += ",";
+  appendBulbDevice(j, b);
+  j += "}";
   return j;
 }
 
@@ -191,6 +219,78 @@ void publishDiscovery(const Bulb *b) {
       "-" + bulbIeeeHex(b) + "/light/config";
   publish(cfgTopic.c_str(), discoveryJson(b), true);
 #endif
+}
+
+// The controller itself, as a connectivity binary_sensor. Its device id is
+// also the `via_device` of every bulb, so HA nests the lights under the bridge.
+void publishBridgeDiscovery() {
+#if MQTT_DISCOVERY
+  const String topic = "homeassistant/binary_sensor/" + bridgeUid() + "/config";
+  String j;
+  j.reserve(360);
+  j += "{\"name\":\"Bridge MQTT\",\"unique_id\":\"";
+  j += bridgeUid();
+  j += "\",\"state_topic\":\"";
+  j += willTopic;
+  j += "\",\"device_class\":\"connectivity\",\"payload_on\":\"online\",\"payload_off\":\"offline\",";
+  appendBridgeDevice(j);
+  j += "}";
+  publish(topic.c_str(), j, true);
+#endif
+}
+
+// Per-bulb link diagnostics (LQI, RSSI, seconds since last seen).
+void publishDiagnosticDiscovery(const Bulb *b) {
+#if MQTT_DISCOVERY
+  const String uid = bulbUid(b);
+
+  String lqi;
+  lqi.reserve(440);
+  lqi += "{\"name\":\"LQI\",\"unique_id\":\"" + uid + "-lqi\",\"state_topic\":\"" +
+         topicForBulb(b, "/lqi") +
+         "\",\"icon\":\"mdi:signal\",\"entity_category\":\"diagnostic\",";
+  appendAvailability(lqi, b);
+  lqi += ",";
+  appendBulbDevice(lqi, b);
+  lqi += "}";
+  publish((String("homeassistant/sensor/") + uid + "-lqi/config").c_str(), lqi, true);
+
+  String rssi;
+  rssi.reserve(480);
+  rssi += "{\"name\":\"RSSI\",\"unique_id\":\"" + uid +
+          "-rssi\",\"state_topic\":\"" + topicForBulb(b, "/rssi") +
+          "\",\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\",";
+  appendAvailability(rssi, b);
+  rssi += ",";
+  appendBulbDevice(rssi, b);
+  rssi += "}";
+  publish((String("homeassistant/sensor/") + uid + "-rssi/config").c_str(), rssi, true);
+
+  String seen;
+  seen.reserve(510);
+  seen += "{\"name\":\"Ultimo contatto\",\"unique_id\":\"" + uid +
+          "-seen\",\"state_topic\":\"" + topicForBulb(b, "/last_seen") +
+          "\",\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\",";
+  appendAvailability(seen, b);
+  seen += ",";
+  appendBulbDevice(seen, b);
+  seen += "}";
+  publish((String("homeassistant/sensor/") + uid + "-seen/config").c_str(), seen, true);
+#endif
+}
+
+void publishDiagnostics(const Bulb *b) {
+  const String lqi = topicForBulb(b, "/lqi");
+  publish(lqi.c_str(), String((unsigned)b->lqi), true);
+  const String rssi = topicForBulb(b, "/rssi");
+  publish(rssi.c_str(), String((int)b->rssi), true);
+  const String seen = topicForBulb(b, "/last_seen");
+  if (b->lastSeenMs == 0) {
+    publish(seen.c_str(), "unknown", true);
+  } else {
+    publish(seen.c_str(),
+            String((unsigned long)((millis() - b->lastSeenMs) / 1000)), true);
+  }
 }
 
 // --- Incoming packet parsing (incremental, non-blocking) --------------------
@@ -440,9 +540,13 @@ void onConnected() {
   }
   publish(willTopic.c_str(), "online", true);
   sendSubscribePacket();
+  publishBridgeDiscovery();
   for (size_t i = 0; i < registryCount(); ++i) {
     publishDiscovery(registryGet(i));
+    publishDiagnosticDiscovery(registryGet(i));
+    publishDiagnostics(registryGet(i));
   }
+  lastDiagMs = millis();
   debugLogPrintf("MQTT: connected to %s:%u\n", MQTT_HOST, (unsigned)MQTT_PORT);
 }
 
@@ -538,6 +642,12 @@ void mqttTick() {
       parseIncoming();
       if (state != MqttState::Connected) break;
       republishChanged();
+      if (now - lastDiagMs >= MQTT_DIAG_EVERY_MS) {
+        lastDiagMs = now;
+        for (size_t i = 0; i < registryCount(); ++i) {
+          publishDiagnostics(registryGet(i));
+        }
+      }
       if (now - lastPingMs >= MQTT_PING_EVERY_MS) {
         lastPingMs = now;
         const uint8_t ping[] = {0xC0, 0x00};

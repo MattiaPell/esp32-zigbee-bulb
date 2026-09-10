@@ -20,7 +20,12 @@
 //   <prefix>/<ieee>/availability  retained online/offline per bulb
 //   <prefix>/<ieee>/set           commands (same fields as the REST PATCH)
 //   <prefix>/all/set              same, applied to every bulb
+//   <prefix>/<ieee>/lqi           retained link quality (0-255)
+//   <prefix>/<ieee>/rssi          retained RSSI (dBm)
+//   <prefix>/<ieee>/last_seen     retained seconds since the bulb last spoke
 //   homeassistant/light/<prefix>-<hostname>-<ieee>/light/config
+//   homeassistant/binary_sensor/<prefix>-<hostname>/config   bridge device
+//   homeassistant/sensor/<prefix>-<hostname>-<ieee>-{lqi,rssi,seen}/config
 //                                 retained HA discovery (MQTT_DISCOVERY=1)
 // ---------------------------------------------------------------------------
 

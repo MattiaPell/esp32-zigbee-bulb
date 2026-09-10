@@ -391,6 +391,8 @@ void flushPendingBind() {
   pendingBind.used = false;
   debugLogPrintf("Remote: deferred bind for %s -> %s now queued\n",
                  r != nullptr ? r->name : "remote", pendingBind.bulb.name);
+  webHookEvent("remote_bind_result", ieeeHexOf(pendingBind.remoteIeee).c_str(),
+               r != nullptr ? r->name : "remote", "queued");
 }
 
 void onRemotePrivilegeCommand(const esp_zb_zcl_privilege_command_message_t *message) {
@@ -583,14 +585,16 @@ RemoteBindResult remoteBindToLight(const String &id, const String &bulbId) {
     // The remote is asleep and unknown to the network: arm the bind so it
     // fires automatically on the first press (which is also what wakes the
     // remote and lets it accept the ZDO Bind requests).
-    return armBindOnFirstPress(r->ieee, *b, endpoint) ? REMOTE_BIND_OK
-                                                      : REMOTE_BIND_UNKNOWN;
+    if (!armBindOnFirstPress(r->ieee, *b, endpoint)) return REMOTE_BIND_UNKNOWN;
+    webHookEvent("remote_bind_result", id.c_str(), r->name, "armed");
+    return REMOTE_BIND_OK;
   }
   if (zigbeeRemoteBindBusy()) return REMOTE_BIND_BUSY;
   if (!zigbeeQueueRemoteBind(r->ieee, shortAddr, endpoint, b))
     return REMOTE_BIND_UNKNOWN;
   r->shortAddr = shortAddr;
   r->endpoint = endpoint;
+  webHookEvent("remote_bind_result", id.c_str(), r->name, "queued");
   return REMOTE_BIND_OK;
 }
 

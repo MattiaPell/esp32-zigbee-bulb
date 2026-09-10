@@ -6,7 +6,9 @@
 // Up to WEBHOOK_MAX_URLS endpoints receive a JSON body per event:
 //   {"event":"bulb_offline","bulb":"a4c1...","name":"Salotto",
 //    "detail":"","uptime_s":123,"version":"1.0.0"}
-// Events: boot, bulb_online, bulb_offline, timer_expired, scene_applied.
+// Events: boot, bulb_joined, bulb_removed, bulb_online, bulb_offline,
+// timer_expired, scene_applied, preset_applied, remote_pressed,
+// remote_bind_result, ota_success, ota_failed, ota_rejected.
 //
 // Delivery is one POST per configured URL, queued and non-blocking at the
 // loop level (each POST itself blocks up to ~2 s while the connection runs).

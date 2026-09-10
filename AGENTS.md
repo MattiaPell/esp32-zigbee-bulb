@@ -21,6 +21,11 @@ arduino-cli compile \
 ```
 
 - CI (`.github/workflows/build.yml`) runs exactly this with a secrets stub.
+- Host-side unit tests (pure logic, no hardware or ESP32 toolchain):
+  `bash test/run.sh` (Linux/macOS/CI, needs g++; override with
+  `CXX=clang++`), or `powershell -File test/run.ps1` on Windows
+  (g++/clang++/zig in PATH). CI runs them in the `host-tests` job. Keep pure
+  logic in header-only files (`json_lite.h`-style) so it stays testable.
 - MQTT-enabled variant: add `#define MQTT_HOST "x"` to `secrets.h` and
   rebuild — both variants must compile before merging.
 - After touching `partitions.csv`, validate it:
@@ -53,6 +58,16 @@ arduino-cli compile \
 - `json_lite.h`: the shared hand-rolled JSON helpers
   (`findJsonKey`, `jsonGetBool`, `jsonGetInt`, `jsonGetString`). No JSON
   library anywhere.
+- `presets.h` / `presets.cpp`: built-in quick looks (fixed brightness +
+  kelvin) applied to every bulb through the collective commands. The preset
+  table is header-only data; ids are URL-safe and appear in the API path.
+- `effects.h` / `effects.cpp`: runtime-only lighting effects, one at a time.
+  `candle` sends short-transition collective steps; `color_loop` sends the
+  native ZCL command per bulb. An all-off ends the effect.
+- `adaptive.h` / `adaptive.cpp`: optional circadian lighting (NTP + a fixed
+  UTC offset, persisted in NVS). The curve is the pure, unit-tested
+  `adaptive_curve.h`. It adjusts only powered-on white-mode bulbs and yields
+  to a running effect.
 - `ota_update.cpp`: upload state machine + pending-verify confirmation;
   `Update` (ESP-IDF esp_ota) with bootloader rollback
   (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`).
