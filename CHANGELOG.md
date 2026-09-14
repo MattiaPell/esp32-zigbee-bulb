@@ -26,6 +26,15 @@ follows [Semantic Versioning](https://semver.org/).
   uses `availability_mode: all` and an explicit `brightness_scale`.
 - Web UI: light/dark theme (remembered per browser) and drag-to-reorder bulb
   cards.
+- Locate a bulb: `POST /api/lights/{id}/identify` blinks it three times, with
+  a target button on each card.
+- Relative brightness steps: `POST /api/lights/{id}/step` and `POST /api/step`
+  (`{"delta":N}`, clamped to 1–100) with `+` / `−` buttons in the master row.
+- `GET /api/lights/{id}` returns one bulb's detail (`?debug=1` adds the
+  diagnostics object) and `POST /api/lights/{id}/refresh` asks the bulb for
+  its real state on demand.
+- Web UI: update (re-capture) an existing scene from its chip, without
+  deleting and recreating it.
 
 ### Fixed
 

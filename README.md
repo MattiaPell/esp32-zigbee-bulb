@@ -27,6 +27,9 @@ Features:
 - **adaptive lighting** (optional): with NTP and a UTC offset, white
   temperature and brightness follow a circadian curve;
 - **off timers**: schedule any (or all) bulbs to turn off in a few minutes;
+- **locate**: blink a bulb three times so you can tell which one it is;
+- **relative brightness steps**: `+` / `−` nudge every bulb (or one bulb via
+  the API) without having to know the current level;
 - **installable app**: the control page is a PWA with its own icon —
   "Add to home screen" and it runs fullscreen like a native app;
 - light/dark theme and drag-to-reorder bulb cards (the order is kept in the
@@ -231,7 +234,11 @@ address in hex (stable across reboots).
 | PATCH  | `/api/lights`       | collection update: `{"on":true}` turns every reachable bulb on (each at its own last state), `{"on":false}` all off; also `brightness`, `kelvin`, `rgb_hex` applied to every reachable bulb as one group frame |
 | PATCH  | `/api/lights/{id}`  | partial update: `name`, `on`, `brightness` (0–100), `mode` (`white`/`rgb`), `kelvin`, `rgb_hex` (`"#ff8800"`), optional `transition` (0.1 s units) |
 | DELETE | `/api/lights/{id}`  | unbind and forget a bulb |
+| GET    | `/api/lights/{id}`  | one bulb's detail; `?debug=1` adds the same diagnostics object as the list endpoint |
 | GET    | `/api/lights/{id}/debug` | per-bulb diagnostics: link quality, last seen, command counters |
+| POST   | `/api/lights/{id}/identify` | blinks the bulb three times so you can find it physically (stops a running effect) |
+| POST   | `/api/lights/{id}/refresh` | asks the bulb for its real state/level/color now |
+| POST   | `/api/lights/{id}/step` | `{"delta":10}` relative brightness, clamped to 1–100; optional `transition` |
 | GET    | `/api/pairing`      | `{"open":false,"seconds":180}` |
 | POST   | `/api/pairing`      | `{"seconds":180}` opens the network |
 | GET    | `/api/status`       | version, uptime, IP, RSSI, heap, bulb count, OTA slot and pending-verify state |
@@ -267,6 +274,7 @@ address in hex (stable across reboots).
 | POST   | `/api/adaptive`     | `{"enabled":true}` and/or `{"tz_offset_min":120}` configures adaptive lighting |
 | POST   | `/api/lights/{id}/timer` | `{"seconds":600}` turns that bulb off after the delay (0 cancels) |
 | POST   | `/api/timer`        | same, for every bulb (the deadline lives only in RAM: a reboot clears it) |
+| POST   | `/api/step`         | same `{"delta":N}` relative brightness for every reachable bulb (steps the average level) |
 
 Examples:
 
