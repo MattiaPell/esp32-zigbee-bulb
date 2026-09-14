@@ -63,6 +63,11 @@ void zigbeeRemoveDevice(Bulb *bulb);
 // registry through the report callbacks. Used at boot and by the UI.
 void zigbeeRefreshStates();
 
+// Sends a state/level/color read for a single bulb, so its registry entry
+// catches up with reality without waiting for the rotation. No-op when the
+// bulb is offline.
+void zigbeeRefreshBulb(Bulb *bulb);
+
 // Queues a ZDO Bind (remote -> bulb) for the steering clusters (on/off,
 // level, color control). The bind requests are sent staggered from
 // zigbeeTick (the remote is a sleepy device: several cycles give it time

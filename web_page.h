@@ -51,12 +51,16 @@ button.danger{color:var(--bad);border-color:#3a2626}
 .chip button.play{background:none;border:none;padding:2px 4px;color:var(--acc);font-weight:700}
 .chip button.del{background:none;border:none;padding:2px 6px;color:var(--mut)}
 .chip button.del:hover{color:var(--bad)}
+.chip button.upd{background:none;border:none;padding:2px 6px;color:var(--mut)}
+.chip button.upd:hover{color:var(--acc)}
 button.small{padding:5px 12px;font-size:13px}
 button.small.active{color:var(--acc);border-color:var(--acc)}
 .tmrleft{color:var(--acc);font-size:12px;font-variant-numeric:tabular-nums}
 .logbox{font:11px/1.5 ui-monospace,Consolas,monospace;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px;height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;color:var(--txt);margin-top:8px}
 .tmr{background:none;border:none;color:var(--mut);padding:2px 6px;border-radius:8px;font-size:14px;margin-left:auto}
 .tmr:hover{color:var(--acc);background:var(--card2)}
+.iact{background:none;border:none;color:var(--mut);padding:2px 6px;border-radius:8px;font-size:14px}
+.iact:hover{color:var(--acc);background:var(--card2)}
 .trow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .card.on{box-shadow:inset 3px 0 0 var(--acc)}
@@ -70,7 +74,7 @@ button.small.active{color:var(--acc);border-color:var(--acc)}
 .bname:hover{background:var(--card2)}
 .badge{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
 .badge.on{color:var(--ok);border-color:var(--ok)}
-.rmx{margin-left:auto;background:none;border:none;color:var(--mut);font-size:16px;padding:2px 8px;border-radius:8px}
+.rmx{background:none;border:none;color:var(--mut);font-size:16px;padding:2px 8px;border-radius:8px}
 .rmx:hover{color:var(--bad);background:var(--card2)}
 .row{display:flex;align-items:center;gap:10px}
 .mode{display:flex;background:var(--card2);border:1px solid var(--line);border-radius:9px;overflow:hidden}
@@ -129,6 +133,8 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <span class="stitle">Tutte</span>
   <label class="toggle"><input type="checkbox" id="masterPw" checked><span class="sl"></span></label>
   <span class="tmrleft" id="onCount"></span>
+  <button id="masterDown" class="small" title="Meno luminose" aria-label="Diminuisci luminosità di tutte">&#8722;</button>
+  <button id="masterUp" class="small" title="Più luminose" aria-label="Aumenta luminosità di tutte">+</button>
   <button id="masterTimer" class="small" title="Timer: spegni tutte">&#9201;&#65039;</button>
   <span class="tmrleft" id="masterTimerLeft" hidden></span>
 </div>
@@ -271,10 +277,13 @@ function renderScenes(){
   play.innerHTML='&#9654;';
   play.onclick=async()=>{const r=await api('/api/scenes/'+s.name+'/recall',{method:'POST'});lastScene=s.name;paintSceneActive();toast(`Scena «${s.name}»: ${r.applied} lampadine`)};
   const nm=document.createElement('span');nm.textContent=s.name;
+  const upd=document.createElement('button');upd.className='upd';upd.title='Aggiorna con lo stato attuale';upd.setAttribute('aria-label','Aggiorna '+s.name);
+  upd.innerHTML='&#8635;';
+  upd.onclick=()=>sceneUpdateDialog(s);
   const del=document.createElement('button');del.className='del';del.title='Elimina';del.setAttribute('aria-label','Elimina '+s.name);
   del.innerHTML='&#10005;';
   del.onclick=()=>sceneDeleteDialog(s);
-  chip.append(play,nm,del);box.append(chip);
+  chip.append(play,nm,upd,del);box.append(chip);
  }
  paintSceneActive();
 }
@@ -342,6 +351,13 @@ function sceneDeleteDialog(s){
  },'Elimina');
 }
 
+function sceneUpdateDialog(s){
+ openDialog('Aggiornare la scena «'+s.name+'»?','La scena verrà sovrascritta con lo stato attuale di tutte le lampadine.',async()=>{
+  await api('/api/scenes/'+s.name,{method:'PATCH'});
+  lastScene=s.name;paintSceneActive();toast('Scena «'+s.name+'» aggiornata');
+ },'Aggiorna');
+}
+
 function editing(id,field){const e=modeCache[id];return e&&e.f===field&&Date.now()<e.t}
 function markEdit(id,field,ms=1200){modeCache[id]={f:field,t:Date.now()+ms}}
 
@@ -370,6 +386,8 @@ function render(){
      <span class="badge${L.online?' on':''}">${L.online?'online':'offline'}</span>
      <span class="tmrleft" hidden></span>
      <button class="tmr" title="Timer spegni" aria-label="Timer spegni">&#9201;&#65039;</button>
+     <button class="iact locate" title="Trova (lampeggia)" aria-label="Trova">&#127919;</button>
+     <button class="iact refresh" title="Aggiorna stato" aria-label="Aggiorna stato">&#8635;</button>
      <button class="rmx" title="Rimuovi" aria-label="Rimuovi">${'&#10005;'}</button>
     </div>
     <div class="row">
@@ -429,6 +447,13 @@ $('masterPw').onchange=e=>{
  masterBusy=Date.now()+1800;
  api('/api/lights',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({on:e.target.checked})}).then(refreshSoon);
 };
+function masterStep(d){
+ masterBusy=Date.now()+1800;
+ api('/api/step',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delta:d})})
+  .then(r=>{toast('Luminosità '+r.brightness+'%');refreshSoon()}).catch(()=>{});
+}
+$('masterDown').onclick=()=>masterStep(-10);
+$('masterUp').onclick=()=>masterStep(10);
 
 $('masterTimer').onclick=()=>timerDialog(null,'tutte le lampadine');
 
@@ -470,6 +495,8 @@ function bindCard(card){
  col.onchange=()=>api('/api/lights/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({rgb_hex:col.value})}).then(refreshSoon);
 
  card.querySelector('.tmr').onclick=()=>timerDialog(id,L().name);
+ card.querySelector('.locate').onclick=async()=>{try{await api('/api/lights/'+id+'/identify',{method:'POST'});toast('Lampeggio: '+L().name)}catch(e){}};
+ card.querySelector('.refresh').onclick=async()=>{try{await api('/api/lights/'+id+'/refresh',{method:'POST'});toast('Stato aggiornato');refreshSoon()}catch(e){}};
 
  const handle=card.querySelector('.drag');
  if(handle){
@@ -734,7 +761,7 @@ static const char MANIFEST_JSON[] PROGMEM = R"rawliteral({
 // Network-first service worker: keeps the UI always fresh, makes the app
 // installable and caches the static shell as a fallback. Bump V when the
 // page changes so installed PWAs pick up the new shell.
-static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v3';
+static const char SW_JS[] PROGMEM = R"rawliteral(const V='sw-v4';
 const SHELL=['/','/icon-192.png','/icon-512.png','/manifest.json'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(V).then(c=>c.addAll(SHELL)).then(()=>self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==V).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});

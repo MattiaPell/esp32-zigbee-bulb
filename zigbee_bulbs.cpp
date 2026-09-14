@@ -774,6 +774,14 @@ void zigbeeRefreshStates() {
   lastReadbackMs = 0;
 }
 
+void zigbeeRefreshBulb(Bulb *bulb) {
+  if (!bulbReady(bulb)) return;
+  debugLogPrintf("Readback -> %s 0x%04x ep %u\n", bulb->name, bulb->shortAddr, bulb->endpoint);
+  bulbEP.getLightState(bulb->endpoint, bulb->shortAddr);
+  bulbEP.getLightLevel(bulb->endpoint, bulb->shortAddr);
+  bulbEP.getLightColor(bulb->endpoint, bulb->shortAddr);
+}
+
 void zigbeeTick() {
   if (!Zigbee.started()) return;
 

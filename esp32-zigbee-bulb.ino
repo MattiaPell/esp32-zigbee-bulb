@@ -25,6 +25,7 @@
 #include "config.h"
 #include "debug_log.h"
 #include "effects.h"
+#include "identify.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
 #include "ota_update.h"
@@ -79,6 +80,7 @@ void setup() {
   scenesBegin();
   lightTimersBegin();
   effectsBegin();
+  identifyBegin();
   adaptiveBegin();
   remotesBegin();  // Registered Zigbee remotes/steering devices.
   powerButtonBegin(onKillSwitch);
@@ -113,6 +115,7 @@ void loop() {
   zigbeeTick();
   lightTimersTick();
   effectsTick();
+  identifyTick();
   adaptiveTick();
   registryTick();
   otaTick();

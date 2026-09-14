@@ -12,11 +12,13 @@
 #endif
 
 #include "adaptive.h"
+#include "brightness_step.h"
 #include "bulb_registry.h"
 #include "config.h"
 #include "config_backup.h"
 #include "debug_log.h"
 #include "effects.h"
+#include "identify.h"
 #include "json_lite.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
@@ -128,6 +130,16 @@ Bulb *bulbByApiId(const String &id) {
     if (bulbIeeeHex(registryGet(i)).equalsIgnoreCase(id)) return registryGet(i);
   }
   return nullptr;
+}
+
+// GET /api/lights/{id}: one bulb's detail ("?debug=1" adds diagnostics).
+void handleLightGet(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  sendJson(200, lightJson(b, server.hasArg("debug")));
 }
 
 void handleLightPatch(const String &id) {
@@ -812,6 +824,103 @@ void handleAllTimerPost() {
   sendJson(200, "{\"timer\":" + String(bulbTimerRemainingAll()) + "}");
 }
 
+// --- Per-bulb actions: locate, refresh, relative brightness ------------------
+
+// POST /api/lights/{id}/identify: blink the bulb three times.
+void handleLightIdentifyPost(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  if (!bulbReady(b)) {
+    sendJsonError(409, "light is offline");
+    return;
+  }
+  effectStop();  // A running effect would fight the blink.
+  identifyBulb(b);
+  sendJson(200, "{\"ok\":true}");
+}
+
+// POST /api/lights/{id}/refresh: ask the bulb for its real state now.
+void handleLightRefreshPost(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  if (!bulbReady(b)) {
+    sendJsonError(409, "light is offline");
+    return;
+  }
+  zigbeeRefreshBulb(b);
+  sendJson(200, "{\"ok\":true}");
+}
+
+// POST /api/lights/{id}/step and /api/step: {"delta":N} relative brightness.
+void handleLightStepPost(const String &id) {
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
+    return;
+  }
+  if (!bulbReady(b)) {
+    sendJsonError(409, "light is offline");
+    return;
+  }
+  const String body = server.arg("plain");
+  long delta;
+  if (!jsonGetInt(body, "delta", delta)) {
+    sendJsonError(400, "missing delta");
+    return;
+  }
+  if (delta < -100 || delta > 100) {
+    sendJsonError(400, "delta out of range (-100..100)");
+    return;
+  }
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+  const int target = brightnessStepClamp(bulbBrightnessPct(b), (int)delta);
+  bulbSendBrightness(b, (uint8_t)target, tds);
+  sendJson(200, "{\"brightness\":" + String(target) + "}");
+}
+
+void handleAllStepPost() {
+  const String body = server.arg("plain");
+  long delta;
+  if (!jsonGetInt(body, "delta", delta)) {
+    sendJsonError(400, "missing delta");
+    return;
+  }
+  if (delta < -100 || delta > 100) {
+    sendJsonError(400, "delta out of range (-100..100)");
+    return;
+  }
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+
+  // A group frame carries a single level: step the average of the reachable
+  // bulbs, so "brighter/dimmer all" behaves sensibly with mixed states.
+  long sum = 0;
+  int reachable = 0;
+  for (size_t i = 0; i < registryCount(); ++i) {
+    const Bulb *b = registryGet(i);
+    if (!bulbReady(b)) continue;
+    sum += bulbBrightnessPct(b);
+    ++reachable;
+  }
+  if (reachable == 0) {
+    sendJsonError(409, "no reachable bulb");
+    return;
+  }
+  const int target = brightnessStepClamp((int)(sum / reachable), (int)delta);
+  const int applied = bulbSendAllBrightness((uint8_t)target, tds);
+  sendJson(200, "{\"brightness\":" + String(target) + ",\"applied\":" +
+                    String(applied) + "}");
+}
+
 bool isValidHostname(const String &name) {  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
   if (name[0] == '-' || name[name.length() - 1] == '-') return false;
   for (unsigned i = 0; i < name.length(); ++i) {
@@ -871,8 +980,24 @@ void dispatch() {
       handleLightTimerPost(rest.substring(0, rest.length() - 6));
       return;
     }
+    if (rest.endsWith("/identify") && method == HTTP_POST) {
+      handleLightIdentifyPost(rest.substring(0, rest.length() - 9));
+      return;
+    }
+    if (rest.endsWith("/refresh") && method == HTTP_POST) {
+      handleLightRefreshPost(rest.substring(0, rest.length() - 8));
+      return;
+    }
+    if (rest.endsWith("/step") && method == HTTP_POST) {
+      handleLightStepPost(rest.substring(0, rest.length() - 5));
+      return;
+    }
     if (rest.endsWith("/debug") && method == HTTP_GET) {
       handleLightDebugGet(rest.substring(0, rest.length() - 6));
+      return;
+    }
+    if (method == HTTP_GET) {
+      handleLightGet(rest);
       return;
     }
     if (method == HTTP_PATCH) {
@@ -886,6 +1011,10 @@ void dispatch() {
   }
   if (uri == "/api/timer" && method == HTTP_POST) {
     handleAllTimerPost();
+    return;
+  }
+  if (uri == "/api/step" && method == HTTP_POST) {
+    handleAllStepPost();
     return;
   }
   if (uri == "/api/scenes" && method == HTTP_GET) {

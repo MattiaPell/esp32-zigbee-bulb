@@ -5,3 +5,4 @@
 void runJsonLiteTests();
 void runPresetTests();
 void runAdaptiveTests();
+void runBrightnessStepTests();
