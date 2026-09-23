@@ -133,10 +133,29 @@ void handleLightsGet() {
 }
 
 Bulb *bulbByApiId(const String &id) {
-  for (size_t i = 0; i < registryCount(); ++i) {
-    if (bulbIeeeHex(registryGet(i)).equalsIgnoreCase(id)) return registryGet(i);
+  if (id.length() != 16) return nullptr;
+
+  esp_zb_ieee_addr_t target;
+  for (int i = 0; i < 8; ++i) {
+    // String characters are in big-endian hex (network order).
+    // IEEE address is stored little-endian, so we read characters from front
+    // and write them to the array from back.
+    const char h = id[(7 - i) * 2];
+    const char l = id[(7 - i) * 2 + 1];
+
+    int high = (h >= '0' && h <= '9')   ? (h - '0')
+               : (h >= 'a' && h <= 'f') ? (h - 'a' + 10)
+               : (h >= 'A' && h <= 'F') ? (h - 'A' + 10)
+                                        : -1;
+    int low = (l >= '0' && l <= '9')   ? (l - '0')
+              : (l >= 'a' && l <= 'f') ? (l - 'a' + 10)
+              : (l >= 'A' && l <= 'F') ? (l - 'A' + 10)
+                                       : -1;
+
+    if (high < 0 || low < 0) return nullptr;
+    target[i] = (uint8_t)((high << 4) | low);
   }
-  return nullptr;
+  return registryFindByIeee(target);
 }
 
 // GET /api/lights/{id}: one bulb's detail ("?debug=1" adds diagnostics).
