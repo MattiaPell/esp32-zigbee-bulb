@@ -133,10 +133,29 @@ void handleLightsGet() {
 }
 
 Bulb *bulbByApiId(const String &id) {
-  for (size_t i = 0; i < registryCount(); ++i) {
-    if (bulbIeeeHex(registryGet(i)).equalsIgnoreCase(id)) return registryGet(i);
+  if (id.length() != 16) return nullptr;
+
+  esp_zb_ieee_addr_t target;
+  for (int i = 0; i < 8; ++i) {
+    // String characters are in big-endian hex (network order).
+    // IEEE address is stored little-endian, so we read characters from front
+    // and write them to the array from back.
+    const char h = id[(7 - i) * 2];
+    const char l = id[(7 - i) * 2 + 1];
+
+    int high = (h >= '0' && h <= '9')   ? (h - '0')
+               : (h >= 'a' && h <= 'f') ? (h - 'a' + 10)
+               : (h >= 'A' && h <= 'F') ? (h - 'A' + 10)
+                                        : -1;
+    int low = (l >= '0' && l <= '9')   ? (l - '0')
+              : (l >= 'a' && l <= 'f') ? (l - 'a' + 10)
+              : (l >= 'A' && l <= 'F') ? (l - 'A' + 10)
+                                       : -1;
+
+    if (high < 0 || low < 0) return nullptr;
+    target[i] = (uint8_t)((high << 4) | low);
   }
-  return nullptr;
+  return registryFindByIeee(target);
 }
 
 // GET /api/lights/{id}: one bulb's detail ("?debug=1" adds diagnostics).
@@ -946,39 +965,41 @@ void handleHostnamePost() {
   sendJson(200, "{\"hostname\":\"" + hostnameValue + "\"}");
 }
 
-void dispatch() {
-  const String uri = server.uri();
-  const HTTPMethod method = server.method();
 
+bool dispatchStatic(const String& uri, HTTPMethod method) {
   if (uri == "/" && method == HTTP_GET) {
     server.send_P(200, "text/html", INDEX_HTML);
-    return;
+    return true;
   }
   if (method == HTTP_GET) {  // Static PWA assets.
     if (uri == "/manifest.json") {
       server.send_P(200, "application/manifest+json", MANIFEST_JSON);
-      return;
+      return true;
     }
     if (uri == "/sw.js") {
       server.send_P(200, "application/javascript", SW_JS);
-      return;
+      return true;
     }
     if (uri == "/icon-192.png") {
       server.send_P(200, "image/png", (PGM_P)ICON_192, ICON_192_LEN);
-      return;
+      return true;
     }
     if (uri == "/icon-512.png") {
       server.send_P(200, "image/png", (PGM_P)ICON_512, ICON_512_LEN);
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+bool dispatchApiLights(const String& uri, HTTPMethod method) {
   if (uri == "/api/lights" && method == HTTP_GET) {
     handleLightsGet();
-    return;
+    return true;
   }
   if (uri == "/api/lights" && method == HTTP_PATCH) {
     handleLightsAllPatch();  // Collection update: command every bulb.
-    return;
+    return true;
   }
   if (uri.startsWith("/api/lights/")) {
     const String rest = uri.substring(strlen("/api/lights/"));
@@ -1027,19 +1048,23 @@ void dispatch() {
   }
   if (uri == "/api/timer" && method == HTTP_POST) {
     handleAllTimerPost();
-    return;
+    return true;
   }
   if (uri == "/api/step" && method == HTTP_POST) {
     handleAllStepPost();
-    return;
+    return true;
   }
+  return false;
+}
+
+bool dispatchApiScenes(const String& uri, HTTPMethod method) {
   if (uri == "/api/scenes" && method == HTTP_GET) {
     handleScenesGet();
-    return;
+    return true;
   }
   if (uri == "/api/scenes" && method == HTTP_POST) {
     handleSceneCreate();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/scenes/")) {
     // "/api/scenes/<name>" or "/api/scenes/<name>/recall"
@@ -1065,83 +1090,120 @@ void dispatch() {
   }
   if (uri == "/api/presets" && method == HTTP_GET) {
     handlePresetsGet();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/presets/") && method == HTTP_POST) {
     handlePresetApply(uri.substring(strlen("/api/presets/")));
-    return;
+    return true;
   }
   if (uri == "/api/effects" && method == HTTP_GET) {
     handleEffectsGet();
-    return;
+    return true;
   }
   if (uri == "/api/effects" && method == HTTP_POST) {
     handleEffectsPost();
-    return;
+    return true;
   }
   if (uri == "/api/adaptive" && method == HTTP_GET) {
     handleAdaptiveGet();
-    return;
+    return true;
   }
   if (uri == "/api/adaptive" && method == HTTP_POST) {
     handleAdaptivePost();
-    return;
+    return true;
   }
+  return false;
+}
+
+bool dispatchApiRemotes(const String& uri, HTTPMethod method) {
+  if (uri == "/api/remotes/actions") {
+    if (method == HTTP_GET) {
+      sendJson(200, remoteActionsJson());
+      return true;
+    }
+    if (method == HTTP_POST) {
+      handleRemoteActionsPost();
+      return true;
+    }
+  }
+  if (uri == "/api/remotes" && method == HTTP_GET) {
+    handleRemotesGet();
+    return true;
+  }
+  if (uri.startsWith("/api/remotes/")) {
+    const String rest = uri.substring(strlen("/api/remotes/"));
+    if (method == HTTP_POST && rest.endsWith("/bind")) {
+      handleRemoteBindPost(rest.substring(0, rest.length() - strlen("/bind")));
+      return true;
+    }
+    if (method == HTTP_PATCH) {
+      handleRemotePatch(rest);
+      return true;
+    }
+    if (method == HTTP_DELETE) {
+      handleRemoteDelete(rest);
+      return true;
+    }
+  }
+  return false;
+}
+
+bool dispatchApiMisc(const String& uri, HTTPMethod method) {
   if (uri == "/api/logs" && method == HTTP_GET) {
     handleLogsGet();
-    return;
+    return true;
   }
   if (uri == "/api/logs" && method == HTTP_DELETE) {
     handleLogsDelete();
-    return;
+    return true;
   }
   if (uri == "/api/pairing") {
     if (method == HTTP_POST) {
       handlePairingPost();
-      return;
+      return true;
     }
     if (method == HTTP_GET) {
       handlePairingGet();
-      return;
+      return true;
     }
   }
   if (uri == "/api/status" && method == HTTP_GET) {
     handleStatusGet();
-    return;
+    return true;
   }
   if (uri == "/api/devices" && method == HTTP_GET) {
     handleDevicesGet();
-    return;
+    return true;
   }
   if (uri == "/api/hostname" && method == HTTP_POST) {
     handleHostnamePost();
-    return;
+    return true;
   }
   if (uri == "/api/hooks" && method == HTTP_GET) {
     handleHooksGet();
-    return;
+    return true;
   }
   if (uri == "/api/hooks" && method == HTTP_POST) {
     handleHooksPost();
-    return;
+    return true;
   }
   if (uri == "/api/hooks" && method == HTTP_DELETE) {
     handleHooksDelete();
-    return;
+    return true;
   }
   if (uri == "/api/hooks/test" && method == HTTP_POST) {
     handleHookTestPost();
-    return;
+    return true;
   }
 #ifdef MQTT_HOST
   if (uri == "/api/mqtt") {
     if (method == HTTP_GET) {
       handleMqttGet();
-      return;
+      return true;
     }
     if (method == HTTP_POST) {
       handleMqttPost();
-      return;
+      return true;
     }
   }
 #endif
@@ -1182,15 +1244,27 @@ void dispatch() {
   }
   if (uri == "/api/backup" && method == HTTP_GET) {
     handleBackupGet();
-    return;
+    return true;
   }
   if (uri == "/api/restore" && method == HTTP_POST) {
     handleRestorePost();
-    return;
+    return true;
   }
-  sendJsonError(404, "not found");
+  return false;
 }
 
+void dispatch() {
+  const String uri = server.uri();
+  const HTTPMethod method = server.method();
+
+  if (dispatchStatic(uri, method)) return;
+  if (dispatchApiLights(uri, method)) return;
+  if (dispatchApiScenes(uri, method)) return;
+  if (dispatchApiRemotes(uri, method)) return;
+  if (dispatchApiMisc(uri, method)) return;
+
+  sendJsonError(404, "not found");
+}
 }  // namespace
 
 // Public: shared by the REST API and the serial console.
