@@ -10,6 +10,7 @@ int main() {
   runPresetTests();
   runAdaptiveTests();
   runBrightnessStepTests();
+  runZigbeeUtilsTests();
 
   const int failed = check::failures();
   const int total = check::checks();
