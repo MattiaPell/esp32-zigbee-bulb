@@ -43,7 +43,7 @@ uint32_t lastWifiRetryMs = 0;
 
 // Headers kept for the OTA endpoint (optional MD5 checksum and, if set in
 // secrets.h, the upload token).
-const char *OTA_HEADERS[] = {"X-OTA-MD5", "X-OTA-TOKEN"};
+const char *OTA_HEADERS[] = {"X-OTA-MD5", "X-OTA-TOKEN", "Host", "Origin"};
 
 Preferences webPrefs;
 
@@ -426,7 +426,62 @@ void handleStatusGet() {
 // Multipart upload streaming: the file part is piped into the ota_update
 // state machine. WebServer is single-threaded, so while the upload is being
 // parsed no other request reaches dispatch().
+
+bool isAuthorized(HTTPMethod method) {
+  // Always validate Host for DNS Rebinding protection (even on GET)
+  String host = server.header("Host");
+  if (host.length() > 0) {
+    String expectedLocal = hostnameValue + ".local";
+    String expectedIp = server.client().localIP().toString();
+    String expectedLocalhost = "localhost";
+    String expectedBare = hostnameValue;
+
+    if (host != expectedLocal && !host.startsWith(expectedLocal + ":") &&
+        host != expectedIp && !host.startsWith(expectedIp + ":") &&
+        host != expectedLocalhost && !host.startsWith(expectedLocalhost + ":") &&
+        host != expectedBare && !host.startsWith(expectedBare + ":")) {
+      return false;
+    }
+  }
+
+  // Preflight is allowed if Host passed
+  if (method == HTTP_OPTIONS) {
+    return true;
+  }
+
+  // For state-changing requests, also validate Origin to protect against CSRF
+  if (method != HTTP_GET && method != HTTP_HEAD) {
+    String origin = server.header("Origin");
+
+    // If Origin is present but doesn't match expected values, reject.
+    // Origin: null is also a failure for state-changing requests.
+    if (origin.length() > 0) {
+      if (origin == "null") return false;
+
+      String expectedLocal = "http://" + hostnameValue + ".local";
+      String expectedIp = "http://" + server.client().localIP().toString();
+      String expectedLocalhost = "http://localhost";
+      String expectedBare = "http://" + hostnameValue;
+
+      if (origin != expectedLocal && !origin.startsWith(expectedLocal + ":") &&
+          origin != expectedIp && !origin.startsWith(expectedIp + ":") &&
+          origin != expectedLocalhost && !origin.startsWith(expectedLocalhost + ":") &&
+          origin != expectedBare && !origin.startsWith(expectedBare + ":")) {
+        return false;
+      }
+    }
+    // If Origin is NOT present, we rely on the Host check (already passed above).
+    // Note: Some browsers don't send Origin for same-origin requests, so we allow it if absent.
+  }
+
+  return true;
+}
+
 void handleOtaUpload() {
+  if (!isAuthorized(server.method())) {
+    if (server.upload().status == UPLOAD_FILE_START) otaUploadReject();
+    return;
+  }
   HTTPUpload &upload = server.upload();
   switch (upload.status) {
     case UPLOAD_FILE_START: {
@@ -451,6 +506,10 @@ void handleOtaUpload() {
 }
 
 void handleOtaPost() {
+  if (!isAuthorized(server.method())) {
+    sendJsonError(403, "Forbidden");
+    return;
+  }
   switch (otaResult()) {
     case OtaResult::Done:
       // otaTick() reboots shortly after this response reaches the client.
@@ -1256,6 +1315,11 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
 void dispatch() {
   const String uri = server.uri();
   const HTTPMethod method = server.method();
+
+  if (!isAuthorized(method)) {
+    sendJsonError(403, "Forbidden");
+    return;
+  }
 
   if (dispatchStatic(uri, method)) return;
   if (dispatchApiLights(uri, method)) return;
