@@ -101,6 +101,7 @@ bool groupEnroll(Bulb *bulb) {
   for (size_t i = 0; i < ENROLL_QUEUE; ++i) {
     if (!enrollQueue[i].used) {
       enrollQueue[i] = EnrollJob();
+      enrollQueue[i].used = true;
       memcpy(enrollQueue[i].ieee, bulb->ieee, sizeof(esp_zb_ieee_addr_t));
       return true;
     }
