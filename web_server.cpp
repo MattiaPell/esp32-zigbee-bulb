@@ -116,8 +116,11 @@ String lightJson(const Bulb *b, bool withDebug = false) {
 
 void handleLightsGet() {
   const bool debug = server.hasArg("debug");
+  const size_t count = registryCount();
   String j = "[";
-  for (size_t i = 0; i < registryCount(); ++i) {
+  // Regular lightJson needs ~220 bytes, debug adds ~160 bytes.
+  j.reserve(count * (debug ? 380 : 220) + 2);
+  for (size_t i = 0; i < count; ++i) {
     if (i > 0) j += ",";
     j += lightJson(registryGet(i), debug);
   }
