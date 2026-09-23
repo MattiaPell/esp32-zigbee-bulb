@@ -70,29 +70,63 @@ void advanceUrl(HookEvent &e) {
   }
 }
 
-// One blocking POST; true on any HTTP response (delivery reached the server).
-bool postEvent(const String &url, const String &body) {
-  HTTPClient http;
-  http.setConnectTimeout(WEBHOOK_CONNECT_TIMEOUT_MS);
-  http.setTimeout(WEBHOOK_RESPONSE_TIMEOUT_MS);
-  bool began = false;
-  WiFiClient plain;
-  WiFiClientSecure secure;
-  if (url.startsWith("https://")) {
-    secure.setInsecure();  // TLS without certificate verification (see README).
-    began = http.begin(secure, url);
-  } else {
-    began = http.begin(plain, url);
+// Async task for webhook POST
+struct PostTaskArgs {
+  String url;
+  String body;
+  volatile bool inUse = false;
+  volatile bool done = false;
+  volatile bool success = false;
+};
+PostTaskArgs postTaskArgs;
+
+void postEventTask(void *arg) {
+  {
+    HTTPClient http;
+    http.setConnectTimeout(WEBHOOK_CONNECT_TIMEOUT_MS);
+    http.setTimeout(WEBHOOK_RESPONSE_TIMEOUT_MS);
+    bool began = false;
+    WiFiClient plain;
+    WiFiClientSecure secure;
+    if (postTaskArgs.url.startsWith("https://")) {
+      secure.setInsecure();  // TLS without certificate verification (see README).
+      began = http.begin(secure, postTaskArgs.url);
+    } else {
+      began = http.begin(plain, postTaskArgs.url);
+    }
+    if (!began) {
+      postTaskArgs.success = false;
+      postTaskArgs.done = true;
+    } else {
+        http.addHeader("Content-Type", "application/json");
+        const int code = http.POST(postTaskArgs.body);
+        http.end();
+        if (code <= 0) {
+          debugLogPrintf("Webhooks: %s failed (%d)\n", postTaskArgs.url.c_str(), code);
+          postTaskArgs.success = false;
+        } else {
+          debugLogPrintf("Webhooks: %s -> %d\n", postTaskArgs.url.c_str(), code);
+          postTaskArgs.success = true;
+        }
+        postTaskArgs.done = true;
+    }
+  } // Destructors for HTTPClient, WiFiClient, and WiFiClientSecure are called here
+  vTaskDelete(NULL);
+}
+
+// Begins a non-blocking POST task. Returns true if task started.
+bool beginPostEvent(const String &url, const String &body) {
+  if (postTaskArgs.inUse) return false; // Task already running
+  postTaskArgs.url = url;
+  postTaskArgs.body = body;
+  postTaskArgs.done = false;
+  postTaskArgs.success = false;
+  postTaskArgs.inUse = true;
+
+  if (xTaskCreate(postEventTask, "webhook", 4096, NULL, 1, NULL) != pdPASS) {
+      postTaskArgs.inUse = false;
+      return false;
   }
-  if (!began) return false;
-  http.addHeader("Content-Type", "application/json");
-  const int code = http.POST(body);
-  http.end();
-  if (code <= 0) {
-    debugLogPrintf("Webhooks: %s failed (%d)\n", url.c_str(), code);
-    return false;
-  }
-  debugLogPrintf("Webhooks: %s -> %d\n", url.c_str(), code);
   return true;
 }
 
@@ -132,15 +166,32 @@ void webHooksTick() {
     return;
   }
 
-  if (postEvent(url, e->body)) {
-    advanceUrl(*e);
-    return;
+  if (!postTaskArgs.inUse) {
+      if (!beginPostEvent(url, e->body)) {
+          // Failed to start task, treat as failure
+          ++e->attempts;
+          if (e->attempts >= WEBHOOK_MAX_ATTEMPTS) {
+            advanceUrl(*e);
+          } else {
+            e->nextTryMs = millis() + backoffMs(e->attempts);
+          }
+      }
+      return;
   }
-  ++e->attempts;
-  if (e->attempts >= WEBHOOK_MAX_ATTEMPTS) {
-    advanceUrl(*e);  // Give up on this URL, try the next one.
-  } else {
-    e->nextTryMs = millis() + backoffMs(e->attempts);
+
+  if (postTaskArgs.done) {
+      bool success = postTaskArgs.success;
+      postTaskArgs.inUse = false; // Free the task args
+      if (success) {
+        advanceUrl(*e);
+        return;
+      }
+      ++e->attempts;
+      if (e->attempts >= WEBHOOK_MAX_ATTEMPTS) {
+        advanceUrl(*e);  // Give up on this URL, try the next one.
+      } else {
+        e->nextTryMs = millis() + backoffMs(e->attempts);
+      }
   }
 }
 
