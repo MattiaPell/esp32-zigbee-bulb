@@ -11,6 +11,10 @@
 #error "Copy secrets.example.h to secrets.h and enter your Wi-Fi credentials"
 #endif
 
+#ifndef OTA_TOKEN
+#error "OTA_TOKEN must be defined in secrets.h for secure firmware updates"
+#endif
+
 #include "adaptive.h"
 #include "brightness_step.h"
 #include "bulb_registry.h"
@@ -403,10 +407,7 @@ void handleOtaUpload() {
   HTTPUpload &upload = server.upload();
   switch (upload.status) {
     case UPLOAD_FILE_START: {
-      bool allowed = true;
-#ifdef OTA_TOKEN
-      allowed = server.header("X-OTA-TOKEN").equals(OTA_TOKEN);
-#endif
+      bool allowed = server.header("X-OTA-TOKEN").equals(OTA_TOKEN);
       if (allowed) {
         otaUploadStart(server.header("X-OTA-MD5"));
       } else {
