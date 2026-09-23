@@ -946,229 +946,255 @@ void handleHostnamePost() {
   sendJson(200, "{\"hostname\":\"" + hostnameValue + "\"}");
 }
 
-void dispatch() {
-  const String uri = server.uri();
-  const HTTPMethod method = server.method();
 
+bool dispatchStatic(const String& uri, HTTPMethod method) {
   if (uri == "/" && method == HTTP_GET) {
     server.send_P(200, "text/html", INDEX_HTML);
-    return;
+    return true;
   }
   if (method == HTTP_GET) {  // Static PWA assets.
     if (uri == "/manifest.json") {
       server.send_P(200, "application/manifest+json", MANIFEST_JSON);
-      return;
+      return true;
     }
     if (uri == "/sw.js") {
       server.send_P(200, "application/javascript", SW_JS);
-      return;
+      return true;
     }
     if (uri == "/icon-192.png") {
       server.send_P(200, "image/png", (PGM_P)ICON_192, ICON_192_LEN);
-      return;
+      return true;
     }
     if (uri == "/icon-512.png") {
       server.send_P(200, "image/png", (PGM_P)ICON_512, ICON_512_LEN);
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+bool dispatchApiLights(const String& uri, HTTPMethod method) {
   if (uri == "/api/lights" && method == HTTP_GET) {
     handleLightsGet();
-    return;
+    return true;
   }
   if (uri == "/api/lights" && method == HTTP_PATCH) {
     handleLightsAllPatch();  // Collection update: command every bulb.
-    return;
+    return true;
   }
   if (uri.startsWith("/api/lights/")) {
     const String rest = uri.substring(strlen("/api/lights/"));
     if (rest.endsWith("/timer") && method == HTTP_POST) {
       handleLightTimerPost(rest.substring(0, rest.length() - 6));
-      return;
+      return true;
     }
     if (rest.endsWith("/identify") && method == HTTP_POST) {
       handleLightIdentifyPost(rest.substring(0, rest.length() - 9));
-      return;
+      return true;
     }
     if (rest.endsWith("/refresh") && method == HTTP_POST) {
       handleLightRefreshPost(rest.substring(0, rest.length() - 8));
-      return;
+      return true;
     }
     if (rest.endsWith("/step") && method == HTTP_POST) {
       handleLightStepPost(rest.substring(0, rest.length() - 5));
-      return;
+      return true;
     }
     if (rest.endsWith("/debug") && method == HTTP_GET) {
       handleLightDebugGet(rest.substring(0, rest.length() - 6));
-      return;
+      return true;
     }
     if (method == HTTP_GET) {
       handleLightGet(rest);
-      return;
+      return true;
     }
     if (method == HTTP_PATCH) {
       handleLightPatch(rest);
-      return;
+      return true;
     }
     if (method == HTTP_DELETE) {
       handleLightDelete(rest);
-      return;
+      return true;
     }
   }
   if (uri == "/api/timer" && method == HTTP_POST) {
     handleAllTimerPost();
-    return;
+    return true;
   }
   if (uri == "/api/step" && method == HTTP_POST) {
     handleAllStepPost();
-    return;
+    return true;
   }
+  return false;
+}
+
+bool dispatchApiScenes(const String& uri, HTTPMethod method) {
   if (uri == "/api/scenes" && method == HTTP_GET) {
     handleScenesGet();
-    return;
+    return true;
   }
   if (uri == "/api/scenes" && method == HTTP_POST) {
     handleSceneCreate();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/scenes/")) {
     // "/api/scenes/<name>" or "/api/scenes/<name>/recall"
     const String rest = uri.substring(strlen("/api/scenes/"));
     if (rest.endsWith("/recall") && method == HTTP_POST) {
       handleSceneRecall(rest.substring(0, rest.length() - 7));
-      return;
+      return true;
     }
     if (method == HTTP_DELETE) {
       handleSceneDelete(rest);
-      return;
+      return true;
     }
     if (method == HTTP_PATCH) {
       handleSceneCapture(rest);  // Re-capture under the same name.
-      return;
+      return true;
     }
   }
   if (uri == "/api/presets" && method == HTTP_GET) {
     handlePresetsGet();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/presets/") && method == HTTP_POST) {
     handlePresetApply(uri.substring(strlen("/api/presets/")));
-    return;
+    return true;
   }
   if (uri == "/api/effects" && method == HTTP_GET) {
     handleEffectsGet();
-    return;
+    return true;
   }
   if (uri == "/api/effects" && method == HTTP_POST) {
     handleEffectsPost();
-    return;
+    return true;
   }
   if (uri == "/api/adaptive" && method == HTTP_GET) {
     handleAdaptiveGet();
-    return;
+    return true;
   }
   if (uri == "/api/adaptive" && method == HTTP_POST) {
     handleAdaptivePost();
-    return;
+    return true;
   }
-  if (uri == "/api/logs" && method == HTTP_GET) {
-    handleLogsGet();
-    return;
-  }
-  if (uri == "/api/logs" && method == HTTP_DELETE) {
-    handleLogsDelete();
-    return;
-  }
-  if (uri == "/api/pairing") {
-    if (method == HTTP_POST) {
-      handlePairingPost();
-      return;
-    }
-    if (method == HTTP_GET) {
-      handlePairingGet();
-      return;
-    }
-  }
-  if (uri == "/api/status" && method == HTTP_GET) {
-    handleStatusGet();
-    return;
-  }
-  if (uri == "/api/devices" && method == HTTP_GET) {
-    handleDevicesGet();
-    return;
-  }
-  if (uri == "/api/hostname" && method == HTTP_POST) {
-    handleHostnamePost();
-    return;
-  }
-  if (uri == "/api/hooks" && method == HTTP_GET) {
-    handleHooksGet();
-    return;
-  }
-  if (uri == "/api/hooks" && method == HTTP_POST) {
-    handleHooksPost();
-    return;
-  }
-  if (uri == "/api/hooks" && method == HTTP_DELETE) {
-    handleHooksDelete();
-    return;
-  }
-  if (uri == "/api/hooks/test" && method == HTTP_POST) {
-    handleHookTestPost();
-    return;
-  }
-#ifdef MQTT_HOST
-  if (uri == "/api/mqtt") {
-    if (method == HTTP_GET) {
-      handleMqttGet();
-      return;
-    }
-    if (method == HTTP_POST) {
-      handleMqttPost();
-      return;
-    }
-  }
-#endif
+  return false;
+}
+
+bool dispatchApiRemotes(const String& uri, HTTPMethod method) {
   if (uri == "/api/remotes/actions") {
     if (method == HTTP_GET) {
       sendJson(200, remoteActionsJson());
-      return;
+      return true;
     }
     if (method == HTTP_POST) {
       handleRemoteActionsPost();
-      return;
+      return true;
     }
   }
   if (uri == "/api/remotes" && method == HTTP_GET) {
     handleRemotesGet();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/remotes/")) {
     const String rest = uri.substring(strlen("/api/remotes/"));
     if (method == HTTP_POST && rest.endsWith("/bind")) {
       handleRemoteBindPost(rest.substring(0, rest.length() - strlen("/bind")));
-      return;
+      return true;
     }
     if (method == HTTP_PATCH) {
       handleRemotePatch(rest);
-      return;
+      return true;
     }
     if (method == HTTP_DELETE) {
       handleRemoteDelete(rest);
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+bool dispatchApiMisc(const String& uri, HTTPMethod method) {
+  if (uri == "/api/logs" && method == HTTP_GET) {
+    handleLogsGet();
+    return true;
+  }
+  if (uri == "/api/logs" && method == HTTP_DELETE) {
+    handleLogsDelete();
+    return true;
+  }
+  if (uri == "/api/pairing") {
+    if (method == HTTP_POST) {
+      handlePairingPost();
+      return true;
+    }
+    if (method == HTTP_GET) {
+      handlePairingGet();
+      return true;
+    }
+  }
+  if (uri == "/api/status" && method == HTTP_GET) {
+    handleStatusGet();
+    return true;
+  }
+  if (uri == "/api/devices" && method == HTTP_GET) {
+    handleDevicesGet();
+    return true;
+  }
+  if (uri == "/api/hostname" && method == HTTP_POST) {
+    handleHostnamePost();
+    return true;
+  }
+  if (uri == "/api/hooks" && method == HTTP_GET) {
+    handleHooksGet();
+    return true;
+  }
+  if (uri == "/api/hooks" && method == HTTP_POST) {
+    handleHooksPost();
+    return true;
+  }
+  if (uri == "/api/hooks" && method == HTTP_DELETE) {
+    handleHooksDelete();
+    return true;
+  }
+  if (uri == "/api/hooks/test" && method == HTTP_POST) {
+    handleHookTestPost();
+    return true;
+  }
+#ifdef MQTT_HOST
+  if (uri == "/api/mqtt") {
+    if (method == HTTP_GET) {
+      handleMqttGet();
+      return true;
+    }
+    if (method == HTTP_POST) {
+      handleMqttPost();
+      return true;
+    }
+  }
+#endif
   if (uri == "/api/backup" && method == HTTP_GET) {
     handleBackupGet();
-    return;
+    return true;
   }
   if (uri == "/api/restore" && method == HTTP_POST) {
     handleRestorePost();
-    return;
+    return true;
   }
-  sendJsonError(404, "not found");
+  return false;
 }
 
+void dispatch() {
+  const String uri = server.uri();
+  const HTTPMethod method = server.method();
+
+  if (dispatchStatic(uri, method)) return;
+  if (dispatchApiLights(uri, method)) return;
+  if (dispatchApiScenes(uri, method)) return;
+  if (dispatchApiRemotes(uri, method)) return;
+  if (dispatchApiMisc(uri, method)) return;
+
+  sendJsonError(404, "not found");
+}
 }  // namespace
 
 // Public: shared by the REST API and the serial console.
