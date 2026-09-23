@@ -11,6 +11,7 @@ int main() {
   runAdaptiveTests();
   runBrightnessStepTests();
   runZigbeeUtilsTests();
+  runLightTimerTests();
 
   const int failed = check::failures();
   const int total = check::checks();
