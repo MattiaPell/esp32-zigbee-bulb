@@ -8,3 +8,4 @@ void runAdaptiveTests();
 void runBrightnessStepTests();
 void runZigbeeUtilsTests();
 void runLightTimerTests();
+void runZigbeeGroupsTests();
