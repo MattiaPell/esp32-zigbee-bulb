@@ -1003,37 +1003,47 @@ bool dispatchApiLights(const String& uri, HTTPMethod method) {
   }
   if (uri.startsWith("/api/lights/")) {
     const String rest = uri.substring(strlen("/api/lights/"));
-    if (rest.endsWith("/timer") && method == HTTP_POST) {
-      handleLightTimerPost(rest.substring(0, rest.length() - 6));
-      return true;
+    String id = rest;
+    String action = "";
+    const char* actions[] = {"/timer", "/identify", "/refresh", "/step", "/debug"};
+    for (const char* a : actions) {
+      if (rest.endsWith(a)) {
+        action = a;
+        id = rest.substring(0, rest.length() - action.length());
+        break;
+      }
     }
-    if (rest.endsWith("/identify") && method == HTTP_POST) {
-      handleLightIdentifyPost(rest.substring(0, rest.length() - 9));
-      return true;
+    if (action == "/timer" && method == HTTP_POST) {
+      handleLightTimerPost(id);
+      return;
     }
-    if (rest.endsWith("/refresh") && method == HTTP_POST) {
-      handleLightRefreshPost(rest.substring(0, rest.length() - 8));
-      return true;
+    if (action == "/identify" && method == HTTP_POST) {
+      handleLightIdentifyPost(id);
+      return;
     }
-    if (rest.endsWith("/step") && method == HTTP_POST) {
-      handleLightStepPost(rest.substring(0, rest.length() - 5));
-      return true;
+    if (action == "/refresh" && method == HTTP_POST) {
+      handleLightRefreshPost(id);
+      return;
     }
-    if (rest.endsWith("/debug") && method == HTTP_GET) {
-      handleLightDebugGet(rest.substring(0, rest.length() - 6));
-      return true;
+    if (action == "/step" && method == HTTP_POST) {
+      handleLightStepPost(id);
+      return;
     }
-    if (method == HTTP_GET) {
-      handleLightGet(rest);
-      return true;
+    if (action == "/debug" && method == HTTP_GET) {
+      handleLightDebugGet(id);
+      return;
     }
-    if (method == HTTP_PATCH) {
-      handleLightPatch(rest);
-      return true;
+    if (action == "" && method == HTTP_GET) {
+      handleLightGet(id);
+      return;
     }
-    if (method == HTTP_DELETE) {
-      handleLightDelete(rest);
-      return true;
+    if (action == "" && method == HTTP_PATCH) {
+      handleLightPatch(id);
+      return;
+    }
+    if (action == "" && method == HTTP_DELETE) {
+      handleLightDelete(id);
+      return;
     }
   }
   if (uri == "/api/timer" && method == HTTP_POST) {
@@ -1059,17 +1069,23 @@ bool dispatchApiScenes(const String& uri, HTTPMethod method) {
   if (uri.startsWith("/api/scenes/")) {
     // "/api/scenes/<name>" or "/api/scenes/<name>/recall"
     const String rest = uri.substring(strlen("/api/scenes/"));
-    if (rest.endsWith("/recall") && method == HTTP_POST) {
-      handleSceneRecall(rest.substring(0, rest.length() - 7));
-      return true;
+    String id = rest;
+    String action = "";
+    if (rest.endsWith("/recall")) {
+      action = "/recall";
+      id = rest.substring(0, rest.length() - 7);
     }
-    if (method == HTTP_DELETE) {
-      handleSceneDelete(rest);
-      return true;
+    if (action == "/recall" && method == HTTP_POST) {
+      handleSceneRecall(id);
+      return;
     }
-    if (method == HTTP_PATCH) {
-      handleSceneCapture(rest);  // Re-capture under the same name.
-      return true;
+    if (action == "" && method == HTTP_DELETE) {
+      handleSceneDelete(id);
+      return;
+    }
+    if (action == "" && method == HTTP_PATCH) {
+      handleSceneCapture(id);  // Re-capture under the same name.
+      return;
     }
   }
   if (uri == "/api/presets" && method == HTTP_GET) {
@@ -1191,6 +1207,41 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
     }
   }
 #endif
+  if (uri == "/api/remotes/actions") {
+    if (method == HTTP_GET) {
+      sendJson(200, remoteActionsJson());
+      return;
+    }
+    if (method == HTTP_POST) {
+      handleRemoteActionsPost();
+      return;
+    }
+  }
+  if (uri == "/api/remotes" && method == HTTP_GET) {
+    handleRemotesGet();
+    return;
+  }
+  if (uri.startsWith("/api/remotes/")) {
+    const String rest = uri.substring(strlen("/api/remotes/"));
+    String id = rest;
+    String action = "";
+    if (rest.endsWith("/bind")) {
+      action = "/bind";
+      id = rest.substring(0, rest.length() - 5);
+    }
+    if (action == "/bind" && method == HTTP_POST) {
+      handleRemoteBindPost(id);
+      return;
+    }
+    if (action == "" && method == HTTP_PATCH) {
+      handleRemotePatch(id);
+      return;
+    }
+    if (action == "" && method == HTTP_DELETE) {
+      handleRemoteDelete(id);
+      return;
+    }
+  }
   if (uri == "/api/backup" && method == HTTP_GET) {
     handleBackupGet();
     return true;
