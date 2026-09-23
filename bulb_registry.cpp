@@ -75,9 +75,10 @@ bool deserializeBulbState(BulbState &st, const String &s) {
   int v[7] = {0};
   int n = 0;
   int start = 0;
+  const char *c_str = s.c_str();
   for (int i = 0; i <= (int)s.length() && n < 7; ++i) {
-    if (i == (int)s.length() || s[i] == ',') {
-      v[n++] = s.substring(start, i).toInt();
+    if (i == (int)s.length() || c_str[i] == ',') {
+      v[n++] = strtol(c_str + start, nullptr, 10);
       start = i + 1;
     }
   }
