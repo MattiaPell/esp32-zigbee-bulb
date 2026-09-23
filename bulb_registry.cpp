@@ -148,9 +148,12 @@ Bulb *registryAdd(const esp_zb_ieee_addr_t ieee) {
   b.state.kelvin = DEFAULT_KELVIN;
 
   // Auto name "Bulb N", skipping names already in use.
-  for (int candidate = 1;; ++candidate) {
+  for (int candidate = 1; candidate <= 9999; ++candidate) {
     char wanted[sizeof(b.name)];
-    snprintf(wanted, sizeof(wanted), "Bulb %d", candidate);
+    int n = snprintf(wanted, sizeof(wanted), "Bulb %d", candidate);
+    if (n < 0 || n >= (int)sizeof(wanted)) {
+      continue; // truncation or error, skip
+    }
     bool taken = false;
     for (size_t i = 0; i < bulbCountValue - 1; ++i) {
       if (strcmp(bulbs[i].name, wanted) == 0) {
