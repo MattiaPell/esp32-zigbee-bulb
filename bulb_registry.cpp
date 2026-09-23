@@ -129,9 +129,23 @@ Bulb *registryFindByIeee(const esp_zb_ieee_addr_t ieee) {
   return nullptr;
 }
 
+static uint8_t hexCharToInt(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return 0;
+}
+
 Bulb *registryFindByIeeeHex(const String &ieeeHex) {
+  if (ieeeHex.length() != 16) return nullptr;
+
+  esp_zb_ieee_addr_t target;
+  for (int i = 0; i < 8; ++i) {
+    target[7 - i] = (hexCharToInt(ieeeHex[i * 2]) << 4) | hexCharToInt(ieeeHex[i * 2 + 1]);
+  }
+
   for (size_t i = 0; i < bulbCountValue; ++i) {
-    if (bulbIeeeHex(&bulbs[i]).equalsIgnoreCase(ieeeHex)) return &bulbs[i];
+    if (ieeeEquals(bulbs[i].ieee, target)) return &bulbs[i];
   }
   return nullptr;
 }
