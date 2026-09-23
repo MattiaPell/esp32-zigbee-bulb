@@ -477,12 +477,11 @@ bool isAuthorized(HTTPMethod method) {
   return true;
 }
 
-void handleOtaUpload() {
+void handleOtaUpload(HTTPUpload &upload) {
   if (!isAuthorized(server.method())) {
-    if (server.upload().status == UPLOAD_FILE_START) otaUploadReject();
+    if (upload.status == UPLOAD_FILE_START) otaUploadReject();
     return;
   }
-  HTTPUpload &upload = server.upload();
   switch (upload.status) {
     case UPLOAD_FILE_START: {
       bool allowed = server.header("X-OTA-TOKEN").equals(OTA_TOKEN);
@@ -534,6 +533,44 @@ void handleOtaPost() {
       sendJsonError(400, "no firmware data");
   }
 }
+
+// /api/ota is served by a custom RequestHandler instead of
+// server.on(uri, method, fn, ufn): with a plain upload callback the WebServer
+// core reports canRaw() == true for every non-GET request, so a bare POST
+// (no multipart body) calls the upload callback outside _parseForm, where
+// server.upload() dereferences a null _currentUpload and reboots the board.
+// This handler leaves canRaw()/raw() at their safe defaults (false / no-op)
+// and receives the HTTPUpload context explicitly, so a bare POST reaches
+// handleOtaPost as a normal request and gets "no firmware data".
+class OtaRequestHandler : public RequestHandler {
+ public:
+  bool canHandle(HTTPMethod method, const String &uri) override {
+    return method == HTTP_POST && uri == "/api/ota";
+  }
+  bool canHandle(WebServer &srv, HTTPMethod method, const String &uri) override {
+    (void)srv;
+    return canHandle(method, uri);
+  }
+  bool canUpload(const String &uri) override {
+    return uri == "/api/ota";
+  }
+  bool canUpload(WebServer &srv, const String &uri) override {
+    (void)srv;
+    return canUpload(uri);
+  }
+  void upload(WebServer &srv, const String &uri, HTTPUpload &upload) override {
+    (void)srv;
+    (void)uri;
+    handleOtaUpload(upload);
+  }
+  bool handle(WebServer &srv, HTTPMethod method, const String &uri) override {
+    (void)srv;
+    (void)method;
+    (void)uri;
+    handleOtaPost();
+    return true;
+  }
+};
 
 // --- Scenes ------------------------------------------------------------------
 
@@ -1366,7 +1403,7 @@ void webBegin() {
   hostnameValue = webPrefs.getString("host", DEFAULT_HOSTNAME);
   webPrefs.end();
 
-  server.on("/api/ota", HTTP_POST, handleOtaPost, handleOtaUpload);
+  server.addHandler(new OtaRequestHandler());
   server.collectHeaders(OTA_HEADERS, sizeof(OTA_HEADERS) / sizeof(OTA_HEADERS[0]));
   server.onNotFound(dispatch);
   server.begin();
