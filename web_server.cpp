@@ -1015,35 +1015,35 @@ bool dispatchApiLights(const String& uri, HTTPMethod method) {
     }
     if (action == "/timer" && method == HTTP_POST) {
       handleLightTimerPost(id);
-      return;
+      return true;
     }
     if (action == "/identify" && method == HTTP_POST) {
       handleLightIdentifyPost(id);
-      return;
+      return true;
     }
     if (action == "/refresh" && method == HTTP_POST) {
       handleLightRefreshPost(id);
-      return;
+      return true;
     }
     if (action == "/step" && method == HTTP_POST) {
       handleLightStepPost(id);
-      return;
+      return true;
     }
     if (action == "/debug" && method == HTTP_GET) {
       handleLightDebugGet(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_GET) {
       handleLightGet(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_PATCH) {
       handleLightPatch(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_DELETE) {
       handleLightDelete(id);
-      return;
+      return true;
     }
   }
   if (uri == "/api/timer" && method == HTTP_POST) {
@@ -1077,15 +1077,15 @@ bool dispatchApiScenes(const String& uri, HTTPMethod method) {
     }
     if (action == "/recall" && method == HTTP_POST) {
       handleSceneRecall(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_DELETE) {
       handleSceneDelete(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_PATCH) {
       handleSceneCapture(id);  // Re-capture under the same name.
-      return;
+      return true;
     }
   }
   if (uri == "/api/presets" && method == HTTP_GET) {
@@ -1210,16 +1210,16 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
   if (uri == "/api/remotes/actions") {
     if (method == HTTP_GET) {
       sendJson(200, remoteActionsJson());
-      return;
+      return true;
     }
     if (method == HTTP_POST) {
       handleRemoteActionsPost();
-      return;
+      return true;
     }
   }
   if (uri == "/api/remotes" && method == HTTP_GET) {
     handleRemotesGet();
-    return;
+    return true;
   }
   if (uri.startsWith("/api/remotes/")) {
     const String rest = uri.substring(strlen("/api/remotes/"));
@@ -1231,15 +1231,15 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
     }
     if (action == "/bind" && method == HTTP_POST) {
       handleRemoteBindPost(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_PATCH) {
       handleRemotePatch(id);
-      return;
+      return true;
     }
     if (action == "" && method == HTTP_DELETE) {
       handleRemoteDelete(id);
-      return;
+      return true;
     }
   }
   if (uri == "/api/backup" && method == HTTP_GET) {
