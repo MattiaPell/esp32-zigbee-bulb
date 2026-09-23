@@ -364,7 +364,8 @@ void handleLogsDelete() {
   sendJson(200, "{\"cleared\":true}");
 }
 
-void handleStatusGet() {  String j;
+void handleStatusGet() {
+  String j;
   j.reserve(300);
   j += "{\"version\":\"";
   j += FW_VERSION;
@@ -921,7 +922,8 @@ void handleAllStepPost() {
                     String(applied) + "}");
 }
 
-bool isValidHostname(const String &name) {  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
+bool isValidHostname(const String &name) {
+  if (name.length() == 0 || name.length() > MAX_HOSTNAME_LENGTH) return false;
   if (name[0] == '-' || name[name.length() - 1] == '-') return false;
   for (unsigned i = 0; i < name.length(); ++i) {
     char c = name[i];
