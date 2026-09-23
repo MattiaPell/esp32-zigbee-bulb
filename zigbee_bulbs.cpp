@@ -7,6 +7,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "debug_log.h"
+#include "zigbee_utils.h"
 #include "remote_controls.h"
 #include "status_led.h"
 #include "web_hooks.h"
@@ -244,10 +245,6 @@ uint16_t kelvinToMireds(int kelvin) {
   return (uint16_t)(1000000UL / (uint32_t)kelvin);
 }
 
-uint16_t clampTransition(uint16_t transitionDs) {
-  if (transitionDs > MAX_TRANSITION_DS) return MAX_TRANSITION_DS;
-  return transitionDs;
-}
 
 Bulb *bulbByIeeeFromResponse(const esp_zb_ieee_addr_t ieee) {
   return registryFindByIeee(ieee);
