@@ -119,8 +119,8 @@ curl -F "update=@esp32-zigbee-bulb.ino.bin" http://bulb.local/api/ota
 
 - Optional checksum: send the MD5 of the `.bin` in the `X-OTA-MD5` header;
   the upload is rejected if the written image does not match.
-- Optional token: define `OTA_TOKEN` in `secrets.h` to require the same
-  value in the `X-OTA-TOKEN` header on every upload.
+- Required token: you must define `OTA_TOKEN` in `secrets.h` and provide
+  it in the `X-OTA-TOKEN` header on every upload.
 - Rollback: the new slot boots as "pending verify". If the board restarts
   within 90 seconds (crash or boot loop), the bootloader switches back to
   the previous slot automatically. After 90 seconds of stable operation the
@@ -443,8 +443,8 @@ scene or send commands afterwards.
   trusted LAN.
 - **The web server is single-threaded**: during a multipart OTA upload no
   other request is served, and long handlers block the loop.
-- **`POST /api/ota` is for a trusted LAN only** (define `OTA_TOKEN` in
-  `secrets.h` to require a token).
+- **`POST /api/ota` is for a trusted LAN only** (`OTA_TOKEN` must be defined
+  in `secrets.h` and provided to authorize uploads).
 
 ## Roadmap
 

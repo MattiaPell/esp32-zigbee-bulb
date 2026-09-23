@@ -12,7 +12,9 @@
 //
 // Optional request headers (must be collected by WebServer):
 //   X-OTA-MD5    32 hex chars; upload is rejected on checksum mismatch.
-//   X-OTA-TOKEN  required only if OTA_TOKEN is defined in secrets.h.
+//
+// Required request headers:
+//   X-OTA-TOKEN  must match OTA_TOKEN defined in secrets.h.
 // ---------------------------------------------------------------------------
 
 #include <Arduino.h>

@@ -5,9 +5,9 @@
 #define WIFI_SSID "your-wifi-name"
 #define WIFI_PASSWORD "your-wifi-password"
 
-// Optional: require this token in the X-OTA-TOKEN header for firmware
-// uploads (POST /api/ota). Uncomment to enable.
-// #define OTA_TOKEN "your-ota-secret"
+// Required: this token must be provided in the X-OTA-TOKEN header for
+// firmware uploads (POST /api/ota) to prevent unauthorized updates.
+#define OTA_TOKEN "your-ota-secret"
 
 // Optional: seed one webhook URL for event notifications (used only if no
 // URL was ever configured via /api/hooks). Uncomment to enable.
