@@ -13,6 +13,7 @@ int main() {
   runZigbeeUtilsTests();
   runLightTimerTests();
   runZigbeeGroupsTests();
+  runBulbRegistryTests();
   runSceneTests();
   runConfigBackupTests();
 
