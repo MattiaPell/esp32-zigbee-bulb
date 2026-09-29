@@ -14,6 +14,11 @@ int main() {
   runLightTimerTests();
   runZigbeeGroupsTests();
   runWebHooksTests();
+  runWebUtilsTests();
+  runMqttBridgeTests();
+  runBulbRegistryTests();
+  runSceneTests();
+  runConfigBackupTests();
 
   const int failed = check::failures();
   const int total = check::checks();

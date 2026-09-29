@@ -261,8 +261,9 @@ String webHookUrlAt(size_t index) {
 }
 
 bool isValidWebHookUrl(const String &url) {
-  if (url.length() == 0 || url.length() > WEBHOOK_MAX_URL_LENGTH) return false;
+  if (url.length() < 10 || url.length() > WEBHOOK_MAX_URL_LENGTH) return false;
   if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
+  if (url.indexOf(' ') >= 0) return false;
   for (unsigned i = 0; i < url.length(); ++i) {
     char c = url[i];
     if (c <= 0x20 || c == '"' || c == '\\') return false;
