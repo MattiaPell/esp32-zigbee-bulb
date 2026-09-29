@@ -1,4 +1,5 @@
 #include "check.h"
+#include <cstdint>
 
 // We need to compile config_backup.cpp to test its internal function skipJsonString.
 // Since test/run.sh compiles all test/*.cpp files together, we need to be careful
