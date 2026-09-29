@@ -13,6 +13,7 @@ int main() {
   runZigbeeUtilsTests();
   runLightTimerTests();
   runZigbeeGroupsTests();
+  runSceneTests();
   runConfigBackupTests();
 
   const int failed = check::failures();
