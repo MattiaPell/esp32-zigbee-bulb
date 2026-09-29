@@ -15,3 +15,11 @@
 #include <cstring>
 
 #include "WString.h"
+
+#ifndef constrain
+#define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
+#endif
+
+#ifndef HEX
+#define HEX 16
+#endif
