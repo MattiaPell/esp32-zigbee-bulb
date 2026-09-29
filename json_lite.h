@@ -9,7 +9,7 @@
 
 #include <Arduino.h>
 
-// Find "key": in body; returns the value start position or (size_t)-1.
+// Find "key": in body; returns the value start position or -1 cast to size_t.
 inline size_t findJsonKey(const String &body, const char *key) {
   // Tolerant to spaced-out JSON: find "key", skip whitespace, expect ':'. A
   // string value that merely equals the key name (e.g. a bulb called "power")
