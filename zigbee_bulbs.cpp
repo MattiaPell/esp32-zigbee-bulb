@@ -720,7 +720,7 @@ void zigbeeBegin() {
     const uint32_t errorStarted = millis();
     while (millis() - errorStarted < 2000) {
       statusLedTick();
-      delay(10);
+      vTaskDelay(pdMS_TO_TICKS(10));
     }
     ESP.restart();
   }
