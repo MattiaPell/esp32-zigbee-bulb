@@ -13,6 +13,7 @@ int main() {
   runZigbeeUtilsTests();
   runLightTimerTests();
   runZigbeeGroupsTests();
+  runWebHooksTests();
 
   const int failed = check::failures();
   const int total = check::checks();
