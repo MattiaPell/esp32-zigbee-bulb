@@ -59,16 +59,16 @@ void deserializeRuntimeAddr(Bulb &b, const String &s) {
 
 // Public: shared with the scenes module (and NVS storage).
 String serializeBulbState(const BulbState &st) {
-  String s;
-  s.reserve(48);
-  s += String((uint8_t)st.mode);
-  s += st.power ? ",1" : ",0";
-  s += "," + String(st.level);
-  s += "," + String(st.kelvin);
-  s += "," + String(st.red);
-  s += "," + String(st.green);
-  s += "," + String(st.blue);
-  return s;
+  char buf[64];
+  snprintf(buf, sizeof(buf), "%u,%u,%u,%u,%u,%u,%u",
+           (uint8_t)st.mode,
+           st.power ? 1 : 0,
+           st.level,
+           st.kelvin,
+           st.red,
+           st.green,
+           st.blue);
+  return String(buf);
 }
 
 bool deserializeBulbState(BulbState &st, const String &s) {
