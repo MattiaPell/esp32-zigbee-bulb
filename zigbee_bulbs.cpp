@@ -779,13 +779,7 @@ void zigbeeRefreshBulb(Bulb *bulb) {
   bulbEP.getLightColor(bulb->endpoint, bulb->shortAddr);
 }
 
-void zigbeeTick() {
-  if (!Zigbee.started()) return;
-
-  const uint32_t now = millis();
-
-  if (!Zigbee.connected()) return;
-
+inline void tickRegistrySync(uint32_t now) {
   // Bindings + registry reconciliation.
   if (now - lastSyncMs >= 5000 || lastSyncMs == 0) {
     lastSyncMs = now;
@@ -801,7 +795,9 @@ void zigbeeTick() {
     resendIndex = 0;
     zigbeeRefreshStates();
   }
+}
 
+inline void tickPairingWindow(uint32_t now) {
   // While no bulb is bound, keep a pairing window open so the first bulb can
   // join without using the UI. The first window opens a few seconds after
   // the network forms; expired windows are reopened immediately.
@@ -815,7 +811,9 @@ void zigbeeTick() {
       zigbeeOpenPairing(PAIRING_SECONDS);
     }
   }
+}
 
+inline void tickAddressResolution(uint32_t now) {
   // Resolve missing short addresses (IEEE -> short), one per pass.
   if (now - lastResolveMs >= 1000) {
     lastResolveMs = now;
@@ -827,25 +825,17 @@ void zigbeeTick() {
     lastSourceResolveMs = now;
     resolveNextUnknownSource();
   }
+}
 
-  // Verify newly-bound devices (bulb vs remote/steering device).
-  verifyTick(now);
-
-  // Remote -> bulb bind requests (staggered, repeated while the job lives).
-  remoteBindTick(now);
-
-  // Group membership enrollment (staggered Add Group commands).
-  groupTick(now);
-
-  // Remote control housekeeping (IEEE resolution for new remotes).
-  remotesTick();
-
+inline void tickMemberRefresh(uint32_t now) {
   // Network member snapshot refresh.
   if (now - lastMembersMs >= MEMBER_REFRESH_MS) {
     lastMembersMs = now;
     zigbeeRequestMembers();
   }
+}
 
+inline void tickBootStateResend(uint32_t now) {
   // Boot state resend: one bulb per pass.
   if (resendPending && now - lastResendMs >= 400) {
     lastResendMs = now;
@@ -859,7 +849,9 @@ void zigbeeTick() {
       debugLogPrintln("Zigbee: stored states resent after boot.");
     }
   }
+}
 
+inline void tickReadbackRotation(uint32_t now) {
   // Continuous readback rotation: one bulb every READBACK_INTERVAL_MS, so
   // physical changes (IKEA remote, factory-reset bulbs that stopped
   // reporting) reach the registry and the UI within a few seconds.
@@ -877,6 +869,25 @@ void zigbeeTick() {
       }
     }
   }
+}
+
+void zigbeeTick() {
+  if (!Zigbee.started()) return;
+
+  const uint32_t now = millis();
+
+  if (!Zigbee.connected()) return;
+
+  tickRegistrySync(now);
+  tickPairingWindow(now);
+  tickAddressResolution(now);
+  verifyTick(now);
+  remoteBindTick(now);
+  groupTick(now);
+  remotesTick();
+  tickMemberRefresh(now);
+  tickBootStateResend(now);
+  tickReadbackRotation(now);
 }
 
 void bulbSendOn(Bulb *bulb) {
