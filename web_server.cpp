@@ -168,19 +168,7 @@ void handleLightGet(const String &id) {
   sendJson(200, lightJson(b, server.hasArg("debug")));
 }
 
-void handleLightPatch(const String &id) {
-  debugLogPrintf("PATCH %s <- %s\n", id.c_str(), server.arg("plain").c_str());
-  Bulb *b = bulbByApiId(id);
-  if (b == nullptr) {
-    sendJsonError(404, "unknown light id");
-    return;
-  }
-  const String body = server.arg("plain");
-  if (body.length() > 512) {
-    sendJsonError(400, "body too large");
-    return;
-  }
-
+bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg) {
   // Transition override: 0 = cambio colore istantaneo (usato dal flash polizia).
   long transition = (long)DEFAULT_TRANSITION_DS;
   jsonGetInt(body, "transition", transition);
@@ -190,8 +178,9 @@ void handleLightPatch(const String &id) {
   static const char *controlKeys[] = {"on", "brightness", "kelvin", "rgb_hex", "mode"};
   for (const char *key : controlKeys) {
     if (findJsonKey(body, key) != (size_t)-1 && !bulbReady(b)) {
-      sendJsonError(409, "light is offline");
-      return;
+      outHttpCode = 409;
+      outErrorMsg = "light is offline";
+      return false;
     }
   }
 
@@ -202,8 +191,9 @@ void handleLightPatch(const String &id) {
       registryRename(b, name.c_str());
       changed = true;
     } else {
-      sendJsonError(400, "invalid name");
-      return;
+      outHttpCode = 400;
+      outErrorMsg = "invalid name";
+      return false;
     }
   }
 
@@ -233,8 +223,9 @@ void handleLightPatch(const String &id) {
       bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
       changed = true;
     } else {
-      sendJsonError(400, "invalid rgb_hex");
-      return;
+      outHttpCode = 400;
+      outErrorMsg = "invalid rgb_hex";
+      return false;
     }
   }
 
@@ -247,16 +238,41 @@ void handleLightPatch(const String &id) {
       bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
       changed = true;
     } else {
-      sendJsonError(400, "invalid mode");
-      return;
+      outHttpCode = 400;
+      outErrorMsg = "invalid mode";
+      return false;
     }
   }
 
   if (!changed) {
-    sendJsonError(400, "no recognized fields");
+    outHttpCode = 400;
+    outErrorMsg = "no recognized fields";
+    return false;
+  }
+
+  return true;
+}
+
+void handleLightPatch(const String &id) {
+  debugLogPrintf("PATCH %s <- %s\n", id.c_str(), server.arg("plain").c_str());
+  Bulb *b = bulbByApiId(id);
+  if (b == nullptr) {
+    sendJsonError(404, "unknown light id");
     return;
   }
-  sendJson(200, lightJson(b));
+  const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
+
+  int httpCode = 200;
+  String errorMsg;
+  if (applyLightPatch(b, body, httpCode, errorMsg)) {
+    sendJson(200, lightJson(b));
+  } else {
+    sendJsonError(httpCode, errorMsg.c_str());
+  }
 }
 
 void handleLightDelete(const String &id) {
