@@ -32,8 +32,8 @@ void esp_zb_lock_release() {
 #define ESP_OK 0
 
 typedef struct {
-  uint8_t src_endpoint;
-  uint8_t dst_endpoint;
+  uint8_t src_endpoint __attribute__((unused));
+  uint8_t dst_endpoint __attribute__((unused));
   union { uint16_t addr_short; } dst_addr_u;
 } esp_zb_zcl_basic_cmd_t;
 
