@@ -100,16 +100,11 @@ String lightJson(const Bulb *b, bool withDebug = false) {
   j += "\",\"kelvin\":";
   j += b->state.kelvin;
   j += ",\"rgb_hex\":\"#";
-  char hex[7];
-  snprintf(hex, sizeof(hex), "%02x%02x%02x", b->state.red, b->state.green, b->state.blue);
-  j += hex;
-  j += "\",\"timer\":";
-  j += bulbTimerRemaining(b);
-  j += ",\"endpoint\":";
-  j += b->endpoint;
-  j += ",\"short_addr\":\"0x";
-  j += String(b->shortAddr, HEX);
-  j += "\"";
+  char buf[128];
+  snprintf(buf, sizeof(buf), "%02x%02x%02x\",\"timer\":%" PRIu32 ",\"endpoint\":%d,\"short_addr\":\"0x%x\"",
+           b->state.red, b->state.green, b->state.blue,
+           bulbTimerRemaining(b), b->endpoint, b->shortAddr);
+  j += buf;
   if (withDebug) {
     j += ",\"debug\":";
     j += lightDebugJson(b);
@@ -301,10 +296,9 @@ void handleLightDebugGet(const String &id) {
   j += b->online ? "true" : "false";
   j += ",\"ready\":";
   j += bulbReady(b) ? "true" : "false";
-  j += ",\"endpoint\":";
-  j += b->endpoint;
-  j += ",\"short_addr\":\"0x";
-  j += String(b->shortAddr, HEX);
+  char buf[64];
+  snprintf(buf, sizeof(buf), ",\"endpoint\":%d,\"short_addr\":\"0x%x\"", b->endpoint, b->shortAddr);
+  j += buf;
   j += "\",\"debug\":";
   j += lightDebugJson(b);
   j += "}";
@@ -350,7 +344,9 @@ void handleDevicesGet() {
     memcpy(fake.ieee, devs[i].ieee, sizeof(esp_zb_ieee_addr_t));
     j += bulbIeeeHex(&fake);
     j += "\",\"short\":\"0x";
-    j += String(devs[i].shortAddr, HEX);
+    char buf[5];
+    snprintf(buf, sizeof(buf), "%x", devs[i].shortAddr);
+    j += buf;
     j += "\",\"type\":\"";
     if (devs[i].deviceType == 0) j += "coordinator";
     else if (devs[i].deviceType == 1) j += "router";
