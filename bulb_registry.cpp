@@ -100,15 +100,30 @@ void registryBegin() {
 
   for (size_t i = 0; i < bulbCountValue; ++i) {
     Bulb &b = bulbs[i];
-    String key = "b" + String(i);
-    prefs.getBytes((key + "i").c_str(), b.ieee, sizeof(esp_zb_ieee_addr_t));
-    String name = prefs.getString((key + "n").c_str(), "");
-    sanitizeName(b.name, sizeof(b.name), name.c_str());
-    deserializeBulbState(b.state, prefs.getString((key + "s").c_str(), ""));
-    // Short address and endpoint survive reboots in practice (the network
-    // resumes and bulbs keep their assignment); refreshed from the binding
-    // table and reports anyway.
-    deserializeRuntimeAddr(b, prefs.getString((key + "a").c_str(), ""));
+    char key[16];
+    int len = snprintf(key, sizeof(key), "b%zu", i);
+
+    if (len > 0 && len < (int)sizeof(key) - 1) {
+      key[len] = 'i';
+      key[len + 1] = '\0';
+      prefs.getBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+
+      key[len] = 'n';
+      key[len + 1] = '\0';
+      String name = prefs.getString(key, "");
+      sanitizeName(b.name, sizeof(b.name), name.c_str());
+
+      key[len] = 's';
+      key[len + 1] = '\0';
+      deserializeBulbState(b.state, prefs.getString(key, ""));
+
+      // Short address and endpoint survive reboots in practice (the network
+      // resumes and bulbs keep their assignment); refreshed from the binding
+      // table and reports anyway.
+      key[len] = 'a';
+      key[len + 1] = '\0';
+      deserializeRuntimeAddr(b, prefs.getString(key, ""));
+    }
     b.online = false;
   }
 }
@@ -224,13 +239,28 @@ void registryFlush() {
   prefs.putUChar("count", (uint8_t)bulbCountValue);
   for (size_t i = 0; i < bulbCountValue; ++i) {
     const Bulb &b = bulbs[i];
-    String key = "b" + String(i);
-    prefs.putBytes((key + "i").c_str(), b.ieee, sizeof(esp_zb_ieee_addr_t));
-    prefs.putString((key + "n").c_str(), b.name);
-    prefs.putString((key + "s").c_str(), serializeBulbState(b.state));
-    String addr;
-    serializeRuntimeAddr(b, addr);
-    prefs.putString((key + "a").c_str(), addr);
+    char key[16];
+    int len = snprintf(key, sizeof(key), "b%zu", i);
+
+    if (len > 0 && len < (int)sizeof(key) - 1) {
+      key[len] = 'i';
+      key[len + 1] = '\0';
+      prefs.putBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+
+      key[len] = 'n';
+      key[len + 1] = '\0';
+      prefs.putString(key, b.name);
+
+      key[len] = 's';
+      key[len + 1] = '\0';
+      prefs.putString(key, serializeBulbState(b.state));
+
+      String addr;
+      serializeRuntimeAddr(b, addr);
+      key[len] = 'a';
+      key[len + 1] = '\0';
+      prefs.putString(key, addr);
+    }
   }
 }
 
