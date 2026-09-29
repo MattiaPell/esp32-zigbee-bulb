@@ -25,7 +25,7 @@ class String {
   String(unsigned long v) : s_(std::to_string(v)) {}
   String(long long v) : s_(std::to_string(v)) {}
   String(unsigned long long v) : s_(std::to_string(v)) {}
-  String(int v, int base) {
+  String(unsigned int v, int base) {
     if (base == 16) {
       char buf[32];
       snprintf(buf, sizeof(buf), "%x", v);
@@ -121,6 +121,8 @@ class String {
   void reserve(unsigned int n) { s_.reserve(n); }
 
   void toLowerCase() {
+    for (char &c : s_) {
+      if (c >= 'A' && c <= 'Z') c += 32;
     for (size_t i = 0; i < s_.size(); ++i) {
       s_[i] = std::tolower(static_cast<unsigned char>(s_[i]));
     }
