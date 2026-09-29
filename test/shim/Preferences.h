@@ -1,11 +1,9 @@
 #pragma once
-
 #include "WString.h"
-
 class Preferences {
 public:
     Preferences() {}
-    bool begin(const char * /*name*/, bool /*readOnly*/=false) { return true; }
+    bool begin(const char *, bool=false) { return true; }
     void end() {}
 
     uint8_t getUChar(const char*, uint8_t def) { return def; }

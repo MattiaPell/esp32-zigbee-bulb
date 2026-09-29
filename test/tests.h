@@ -9,6 +9,7 @@ void runBrightnessStepTests();
 void runZigbeeUtilsTests();
 void runLightTimerTests();
 void runZigbeeGroupsTests();
+void runWebHooksTests();
 void runWebUtilsTests();
 void runMqttBridgeTests();
 void runBulbRegistryTests();
