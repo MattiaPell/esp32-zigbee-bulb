@@ -1,76 +1,66 @@
 #include "check.h"
 #include <cstdint>
+#include <string>
 
-// Forward declare constrain
-#ifndef constrain
+#define HEX 16
 #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
-#endif
 
-// Redirect mocks to avoid multiple definitions when compiled with test_light_timers.cpp
-#define registryFindByIeee dummy_registryFindByIeee
-#define bulbIeeeHex dummy_bulbIeeeHex
+#define millis millis_registry
+#define debugLogPrintf debugLogPrintf_registry
+#define registryFindByIeee registryFindByIeee_registry
+#define bulbIeeeHex bulbIeeeHex_registry
 
-// Need to forward declare millis for bulb_registry.cpp to compile cleanly
-uint32_t millis();
+uint32_t mock_millis_registry = 0;
+uint32_t millis() { return mock_millis_registry; }
+void debugLogPrintf(const char * /*format*/, ...) {}
+
+#include "bulb_registry.h"
+
+class PreferencesMock {
+public:
+    void begin(const char*, bool) {}
+    uint8_t getUChar(const char*, uint8_t def) { return def; }
+    void putUChar(const char*, uint8_t) {}
+    void getBytes(const char*, void*, size_t) {}
+    void putBytes(const char*, const void*, size_t) {}
+    String getString(const char*, const char* def) { return String(def); }
+    void putString(const char*, const String&) {}
+};
+#define Preferences PreferencesMock
 
 #include "../bulb_registry.cpp"
 
-void test_deserializeBulbState() {
-  check::begin("deserializeBulbState");
-  BulbState st;
+void testSanitizeName() {
+  check::begin("sanitizeName");
 
-  // Happy path - White mode (mode 0)
-  st = BulbState();
-  CHECK(deserializeBulbState(st, "0,1,128,3000,255,255,255"));
-  CHECK_EQ((uint8_t)st.mode, (uint8_t)BulbColorMode::White);
-  CHECK_EQ(st.power, true);
-  CHECK_EQ(st.level, 128);
-  CHECK_EQ(st.kelvin, 3000);
-  CHECK_EQ(st.red, 255);
-  CHECK_EQ(st.green, 255);
-  CHECK_EQ(st.blue, 255);
+  char out[32];
 
-  // Happy path - RGB mode (mode 1)
-  st = BulbState();
-  CHECK(deserializeBulbState(st, "1,0,255,2200,10,20,30"));
-  CHECK_EQ((uint8_t)st.mode, (uint8_t)BulbColorMode::Rgb);
-  CHECK_EQ(st.power, false);
-  CHECK_EQ(st.level, 255);
-  CHECK_EQ(st.kelvin, 2200);
-  CHECK_EQ(st.red, 10);
-  CHECK_EQ(st.green, 20);
-  CHECK_EQ(st.blue, 30);
+  sanitizeName(out, sizeof(out), "Hello World");
+  CHECK_EQ(std::string(out), "Hello World");
 
-  // Missing commas (less than 7 elements)
-  st = BulbState();
-  CHECK(!deserializeBulbState(st, "0,1,128,3000,255,255"));
-  CHECK(!deserializeBulbState(st, "0,1"));
-  CHECK(!deserializeBulbState(st, ""));
+  sanitizeName(out, sizeof(out), "A\"B\\C");
+  CHECK_EQ(std::string(out), "A B C");
 
-  // Empty values between commas (strtol parses empty as 0)
-  st = BulbState();
-  CHECK(deserializeBulbState(st, "0,,128,3000,255,255,255"));
-  CHECK_EQ(st.power, false);
+  sanitizeName(out, sizeof(out), "A|B;C");
+  CHECK_EQ(std::string(out), "A B C");
 
-  // Constraints check (above bounds)
-  st = BulbState();
-  CHECK(deserializeBulbState(st, "0,1,300,5000,300,300,300"));
-  CHECK_EQ(st.level, 255);
-  CHECK_EQ(st.kelvin, MAX_KELVIN);
-  CHECK_EQ(st.red, 255);
-  CHECK_EQ(st.green, 255);
-  CHECK_EQ(st.blue, 255);
+  sanitizeName(out, sizeof(out), "A\x01\x1F\x7F" "B");
+  CHECK_EQ(std::string(out), "A   B");
 
-  // Constraints check (below bounds)
-  st = BulbState();
-  CHECK(deserializeBulbState(st, "0,1,-10,1000,-10,-10,-10"));
-  CHECK_EQ(st.level, 0);
-  CHECK_EQ(st.kelvin, MIN_KELVIN);
-  CHECK_EQ(st.red, 0);
-  CHECK_EQ(st.green, 0);
-  CHECK_EQ(st.blue, 0);
+  sanitizeName(out, sizeof(out), "Trailing spaces   ");
+  CHECK_EQ(std::string(out), "Trailing spaces");
+
+  sanitizeName(out, sizeof(out), "");
+  CHECK_EQ(std::string(out), "Bulb");
+
+  sanitizeName(out, sizeof(out), "\"\\  ");
+  CHECK_EQ(std::string(out), "Bulb");
+
+  char small[6];
+  sanitizeName(small, sizeof(small), "123456789");
+  CHECK_EQ(std::string(small), "12345");
 }
 
 void runBulbRegistryTests() {
-  test_deserializeBulbState();
+  testSanitizeName();
 }
