@@ -45,6 +45,16 @@ void setSlot(int slot, const esp_zb_ieee_addr_t ieee, uint32_t seconds) {
   debugLogPrintf("Timers: off in %lu s (slot %d)\n", (unsigned long)seconds, slot);
 }
 
+inline int32_t getRemainingMs(int slot) {
+  return (int32_t)(entries[slot].expireMs - millis());
+}
+
+uint32_t getRemainingSeconds(int slot) {
+  if (slot < 0) return 0;
+  const int32_t leftMs = getRemainingMs(slot);
+  return leftMs > 0 ? (uint32_t)leftMs / 1000 : 0;
+}
+
 }  // namespace
 
 void lightTimersBegin() {
@@ -52,10 +62,9 @@ void lightTimersBegin() {
 }
 
 void lightTimersTick() {
-  const uint32_t now = millis();
   for (size_t i = 0; i < SLOTS; ++i) {
     if (!entries[i].active) continue;
-    if ((int32_t)(now - entries[i].expireMs) >= 0) {
+    if (getRemainingMs(i) <= 0) {
       if (ieeeSame(entries[i].ieee, kZeroIeee)) {
         webHookEvent("timer_expired", "", "all bulbs", "all");
         bulbSendAllOff();
@@ -92,9 +101,7 @@ void bulbTimerSet(Bulb *bulb, uint32_t seconds) {
 uint32_t bulbTimerRemaining(const Bulb *bulb) {
   if (bulb == nullptr) return 0;
   const int slot = findSlot(bulb->ieee, false);
-  if (slot < 0) return 0;
-  const int32_t leftMs = (int32_t)(entries[slot].expireMs - millis());
-  return leftMs > 0 ? (uint32_t)leftMs / 1000 : 0;
+  return getRemainingSeconds(slot);
 }
 
 void bulbTimerSetAll(uint32_t seconds) {
@@ -115,7 +122,5 @@ void bulbTimerSetAll(uint32_t seconds) {
 
 uint32_t bulbTimerRemainingAll() {
   const int slot = findSlot(kZeroIeee, false);
-  if (slot < 0) return 0;
-  const int32_t leftMs = (int32_t)(entries[slot].expireMs - millis());
-  return leftMs > 0 ? (uint32_t)leftMs / 1000 : 0;
+  return getRemainingSeconds(slot);
 }
