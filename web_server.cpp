@@ -1402,18 +1402,7 @@ bool webSetHostname(const String &name) {
 void webBegin() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  debugLogPrintf("Wi-Fi: connecting to %s", WIFI_SSID);
-  const uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
-    delay(250);
-    Serial.print('.');
-  }
-  Serial.println();
-  if (WiFi.status() == WL_CONNECTED) {
-    debugLogPrintf("Wi-Fi connected. IP: %s\n", WiFi.localIP().toString().c_str());
-  } else {
-    debugLogPrintln("Wi-Fi not connected yet; will keep retrying.");
-  }
+  debugLogPrintf("Wi-Fi: connecting to %s\n", WIFI_SSID);
 
   webPrefs.begin(PREFS_NAMESPACE, false);
   hostnameValue = webPrefs.getString("host", DEFAULT_HOSTNAME);
@@ -1427,8 +1416,10 @@ void webBegin() {
 
 void webTick() {
   server.handleClient();
+  static bool wasConnected = false;
 
   if (WiFi.status() != WL_CONNECTED) {
+    wasConnected = false;
     if (millis() - lastWifiRetryMs >= WIFI_RETRY_MS) {
       lastWifiRetryMs = millis();
       debugLogPrintln("Wi-Fi: retrying...");
@@ -1439,6 +1430,11 @@ void webTick() {
       mdnsUp = false;
     }
     return;
+  }
+
+  if (!wasConnected) {
+    wasConnected = true;
+    debugLogPrintf("Wi-Fi connected. IP: %s\n", WiFi.localIP().toString().c_str());
   }
 
   if (!mdnsUp && MDNS.begin(hostnameValue.c_str())) {
