@@ -68,6 +68,16 @@ bool ieeeListContains(const esp_zb_ieee_addr_t list[], size_t count, const esp_z
   return false;
 }
 
+bool hasCluster(const esp_zb_af_simple_desc_1_1_t *desc, uint8_t start_index, uint8_t count, uint16_t cluster_id) {
+  if (desc == nullptr) return false;
+  for (uint8_t c = start_index; c < start_index + count; ++c) {
+    if (desc->app_cluster_list[c] == cluster_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Registry of IEEE addresses assumed settled (verified lights).
 bool ieeeIsKnownLight(const esp_zb_ieee_addr_t ieee) {
   for (size_t i = 0; i < registryCount(); ++i) {
@@ -173,22 +183,10 @@ void verifyTick(uint32_t now) {
       bool isLight = false;
       bool isRemote = false;
       if (status == ESP_ZB_ZDP_STATUS_SUCCESS && desc != nullptr) {
-        for (uint8_t c = 0; c < desc->app_input_cluster_count; ++c) {
-          if (desc->app_cluster_list[c] == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
-            isLight = true;
-            break;
-          }
-        }
+        isLight = hasCluster(desc, 0, desc->app_input_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
         if (!isLight) {
           // Steering devices expose on/off only as OUTPUT (client) clusters.
-          for (uint8_t c = desc->app_input_cluster_count;
-               c < desc->app_input_cluster_count + desc->app_output_cluster_count;
-               ++c) {
-            if (desc->app_cluster_list[c] == ESP_ZB_ZCL_CLUSTER_ID_ON_OFF) {
-              isRemote = true;
-              break;
-            }
-          }
+          isRemote = hasCluster(desc, desc->app_input_cluster_count, desc->app_output_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
         }
         if (!isLight && !isRemote) {
           debugLogPrintf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
