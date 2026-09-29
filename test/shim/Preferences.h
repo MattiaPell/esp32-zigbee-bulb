@@ -1,5 +1,7 @@
 #pragma once
 #include "WString.h"
+#include <cstdint>
+
 class Preferences {
 public:
     Preferences() {}
@@ -11,6 +13,10 @@ public:
     void getBytes(const char*, void*, size_t) {}
     void putBytes(const char*, const void*, size_t) {}
     String getString(const char * /*key*/, const char * defaultValue) { return String(defaultValue); }
+    uint8_t getUChar(const char * /*key*/, uint8_t defaultValue) { return defaultValue; }
+    void putString(const char * /*key*/, const String & /*value*/) {}
+    void putUChar(const char * /*key*/, uint8_t /*value*/) {}
+    void remove(const char * /*key*/) {}
     uint8_t getUChar(const char *, uint8_t defaultValue) { return defaultValue; }
     size_t getBytes(const char *, void *, size_t) { return 0; }
     size_t putUChar(const char *, uint8_t) { return 0; }
