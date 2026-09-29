@@ -14,6 +14,7 @@ int main() {
   runLightTimerTests();
   runZigbeeGroupsTests();
   runSceneTests();
+  runConfigBackupTests();
 
   const int failed = check::failures();
   const int total = check::checks();
