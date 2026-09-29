@@ -1,17 +1,13 @@
 #pragma once
 
-// ---------------------------------------------------------------------------
-// Minimal Arduino String stand-in for host-side unit tests.
-//
-// Implements only the subset of the real WString API used by the pure-logic
-// headers (json_lite.h, and future header-only helpers). It is NOT a full
-// replacement and must never be included by firmware code.
-// ---------------------------------------------------------------------------
-
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+
+#ifndef HEX
+#define HEX 16
+#endif
 
 class String {
  public:
@@ -25,6 +21,15 @@ class String {
   String(unsigned long v) : s_(std::to_string(v)) {}
   String(long long v) : s_(std::to_string(v)) {}
   String(unsigned long long v) : s_(std::to_string(v)) {}
+  String(unsigned int v, int base) {
+    if (base == 16) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%x", v);
+      s_ = buf;
+    } else {
+      s_ = std::to_string(v);
+    }
+  }
 
   unsigned int length() const { return static_cast<unsigned int>(s_.size()); }
   bool isEmpty() const { return s_.empty(); }
@@ -110,6 +115,12 @@ class String {
     buf[size - 1] = '\0';
   }
   void reserve(unsigned int n) { s_.reserve(n); }
+
+  void toLowerCase() {
+    for (char &c : s_) {
+      if (c >= 'A' && c <= 'Z') c += 32;
+    }
+  }
 
   bool operator==(const String &o) const { return s_ == o.s_; }
   bool operator!=(const String &o) const { return s_ != o.s_; }
