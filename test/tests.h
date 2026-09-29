@@ -10,3 +10,5 @@ void runZigbeeUtilsTests();
 void runLightTimerTests();
 void runZigbeeGroupsTests();
 void runBulbRegistryTests();
+void runSceneTests();
+void runConfigBackupTests();
