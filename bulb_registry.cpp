@@ -32,7 +32,7 @@ void sanitizeName(char *out, size_t cap, const char *in) {
   size_t o = 0;
   for (const char *p = in; *p != '\0' && o + 1 < cap; ++p) {
     char c = *p;
-    if (c == '"' || c == '\\' || c < 0x20 || c > 0x7e) c = ' ';
+    if (c == '"' || c == '\\' || c == '|' || c == ';' || c < 0x20 || c > 0x7e) c = ' ';
     out[o++] = c;
   }
   while (o > 0 && out[o - 1] == ' ') o--;
