@@ -155,45 +155,7 @@ void appendSceneJson(size_t index, String &j) {
   j += "]}";
 }
 
-}  // namespace
-
-String configBackupJson() {
-  String j;
-  j.reserve(2048);
-  j += "{\"version\":1";
-  j += ",\"hostname\":\"";
-  j += storedHostname();
-  j += "\",\"bulbs\":[";
-  for (size_t i = 0; i < registryCount(); ++i) {
-    if (i > 0) j += ",";
-    appendBulbJson(registryGet(i), j);
-  }
-  j += "],\"scenes\":[";
-  const size_t sceneTotal = scenesCount();
-  for (size_t i = 0; i < sceneTotal; ++i) {
-    if (i > 0) j += ",";
-    appendSceneJson(i, j);
-  }
-  j += "],\"hooks\":{\"urls\":[";
-  for (size_t i = 0; i < webHookUrlCount(); ++i) {
-    if (i > 0) j += ",";
-    j += "\"";
-    j += webHookUrlAt(i);
-    j += "\"";
-  }
-  j += "]},\"mqtt\":{\"enabled\":";
-  j += mqttEnabledRuntime() ? "true" : "false";
-  j += "}}";
-  return j;
-}
-
-bool configRestoreJson(const String &body, String &summary) {
-  long version = 0;
-  if (!jsonGetInt(body, "version", version) || version != 1) {
-    return false;
-  }
-
-  size_t bulbsRestored = 0, bulbsSkipped = 0;
+void restoreBulbs(const String &body, size_t &bulbsRestored, size_t &bulbsSkipped) {
   String bulbObjs[MAX_RESTORE_BULBS];
   const size_t bulbN = extractObjectArray(body, "bulbs", bulbObjs, MAX_RESTORE_BULBS);
   for (size_t i = 0; i < bulbN; ++i) {
@@ -241,8 +203,9 @@ bool configRestoreJson(const String &body, String &summary) {
     ++bulbsRestored;
   }
   registryFlush();
+}
 
-  size_t scenesRestored = 0;
+void restoreScenes(const String &body, size_t &scenesRestored) {
   String sceneObjs[MAX_RESTORE_SCENES];
   const size_t sceneN = extractObjectArray(body, "scenes", sceneObjs, MAX_RESTORE_SCENES);
   for (size_t i = 0; i < sceneN; ++i) {
@@ -268,8 +231,9 @@ bool configRestoreJson(const String &body, String &summary) {
     if (data.length() == 0) continue;
     if (sceneImport(name, data)) ++scenesRestored;
   }
+}
 
-  size_t hooksRestored = 0;
+void restoreHooks(const String &body, size_t &hooksRestored) {
   const String hooksObj = extractObjectValue(body, "hooks");
   if (hooksObj.length() > 0) {
     String hookUrls[WEBHOOK_MAX_URLS];
@@ -278,6 +242,54 @@ bool configRestoreJson(const String &body, String &summary) {
       if (webHookUrlAdd(hookUrls[i])) ++hooksRestored;
     }
   }
+}
+
+}  // namespace
+
+String configBackupJson() {
+  String j;
+  j.reserve(2048);
+  j += "{\"version\":1";
+  j += ",\"hostname\":\"";
+  j += storedHostname();
+  j += "\",\"bulbs\":[";
+  for (size_t i = 0; i < registryCount(); ++i) {
+    if (i > 0) j += ",";
+    appendBulbJson(registryGet(i), j);
+  }
+  j += "],\"scenes\":[";
+  const size_t sceneTotal = scenesCount();
+  for (size_t i = 0; i < sceneTotal; ++i) {
+    if (i > 0) j += ",";
+    appendSceneJson(i, j);
+  }
+  j += "],\"hooks\":{\"urls\":[";
+  for (size_t i = 0; i < webHookUrlCount(); ++i) {
+    if (i > 0) j += ",";
+    j += "\"";
+    j += webHookUrlAt(i);
+    j += "\"";
+  }
+  j += "]},\"mqtt\":{\"enabled\":";
+  j += mqttEnabledRuntime() ? "true" : "false";
+  j += "}}";
+  return j;
+}
+
+bool configRestoreJson(const String &body, String &summary) {
+  long version = 0;
+  if (!jsonGetInt(body, "version", version) || version != 1) {
+    return false;
+  }
+
+  size_t bulbsRestored = 0, bulbsSkipped = 0;
+  restoreBulbs(body, bulbsRestored, bulbsSkipped);
+
+  size_t scenesRestored = 0;
+  restoreScenes(body, scenesRestored);
+
+  size_t hooksRestored = 0;
+  restoreHooks(body, hooksRestored);
 
   const String mqttObj = extractObjectValue(body, "mqtt");
   if (mqttObj.length() > 0) {
