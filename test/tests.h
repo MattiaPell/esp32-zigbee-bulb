@@ -10,3 +10,7 @@ void runZigbeeUtilsTests();
 void runLightTimerTests();
 void runZigbeeGroupsTests();
 void runWebUtilsTests();
+void runMqttBridgeTests();
+void runBulbRegistryTests();
+void runSceneTests();
+void runConfigBackupTests();

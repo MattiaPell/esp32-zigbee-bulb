@@ -25,6 +25,15 @@ class String {
   String(unsigned long v) : s_(std::to_string(v)) {}
   String(long long v) : s_(std::to_string(v)) {}
   String(unsigned long long v) : s_(std::to_string(v)) {}
+  String(unsigned int v, int base) {
+    if (base == 16) {
+      char buf[32];
+      snprintf(buf, sizeof(buf), "%x", v);
+      s_ = buf;
+    } else {
+      s_ = std::to_string(v);
+    }
+  }
 
   unsigned int length() const { return static_cast<unsigned int>(s_.size()); }
   bool isEmpty() const { return s_.empty(); }
@@ -110,6 +119,14 @@ class String {
     buf[size - 1] = '\0';
   }
   void reserve(unsigned int n) { s_.reserve(n); }
+
+  void toLowerCase() {
+    for (char &c : s_) {
+      if (c >= 'A' && c <= 'Z') c += 32;
+    for (size_t i = 0; i < s_.size(); ++i) {
+      s_[i] = std::tolower(static_cast<unsigned char>(s_[i]));
+    }
+  }
 
   bool operator==(const String &o) const { return s_ == o.s_; }
   bool operator!=(const String &o) const { return s_ != o.s_; }

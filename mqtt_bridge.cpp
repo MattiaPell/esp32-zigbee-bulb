@@ -17,6 +17,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "json_lite.h"
+#include "parse_rgb_payload.h"
 #include "zigbee_bulbs.h"
 
 // Command router (defined at the bottom, called from the packet parser).
@@ -366,22 +367,7 @@ void dispatchPacket(uint8_t fixedHeader, const uint8_t *data, size_t len) {
 
 // --- Command handling --------------------------------------------------------
 
-bool parseRgbPayload(const String &payload, uint8_t &r, uint8_t &g, uint8_t &bl) {
-  const int at = payload.indexOf("\"color\"");
-  if (at < 0) return false;
-  const int brace = payload.indexOf('{', at);
-  if (brace < 0) return false;
-  const String obj = payload.substring(brace);
-  long rr = 0, gg = 0, bb = 0;
-  if (!jsonGetInt(obj, "r", rr) || !jsonGetInt(obj, "g", gg) ||
-      !jsonGetInt(obj, "b", bb)) {
-    return false;
-  }
-  r = (uint8_t)constrain(rr, 0, 255);
-  g = (uint8_t)constrain(gg, 0, 255);
-  bl = (uint8_t)constrain(bb, 0, 255);
-  return true;
-}
+
 
 uint8_t levelToPct(uint16_t level) {
   return (uint8_t)(((uint32_t)level * 100 + 127) / 255);
