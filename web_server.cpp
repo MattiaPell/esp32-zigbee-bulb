@@ -1240,97 +1240,6 @@ bool dispatchApiRemotes(const String& uri, HTTPMethod method) {
   }
   if (uri.startsWith("/api/remotes/")) {
     const String rest = uri.substring(strlen("/api/remotes/"));
-    if (method == HTTP_POST && rest.endsWith("/bind")) {
-      handleRemoteBindPost(rest.substring(0, rest.length() - strlen("/bind")));
-      return true;
-    }
-    if (method == HTTP_PATCH) {
-      handleRemotePatch(rest);
-      return true;
-    }
-    if (method == HTTP_DELETE) {
-      handleRemoteDelete(rest);
-      return true;
-    }
-  }
-  return false;
-}
-
-bool dispatchApiMisc(const String& uri, HTTPMethod method) {
-  if (uri == "/api/logs" && method == HTTP_GET) {
-    handleLogsGet();
-    return true;
-  }
-  if (uri == "/api/logs" && method == HTTP_DELETE) {
-    handleLogsDelete();
-    return true;
-  }
-  if (uri == "/api/pairing") {
-    if (method == HTTP_POST) {
-      handlePairingPost();
-      return true;
-    }
-    if (method == HTTP_GET) {
-      handlePairingGet();
-      return true;
-    }
-  }
-  if (uri == "/api/status" && method == HTTP_GET) {
-    handleStatusGet();
-    return true;
-  }
-  if (uri == "/api/devices" && method == HTTP_GET) {
-    handleDevicesGet();
-    return true;
-  }
-  if (uri == "/api/hostname" && method == HTTP_POST) {
-    handleHostnamePost();
-    return true;
-  }
-  if (uri == "/api/hooks" && method == HTTP_GET) {
-    handleHooksGet();
-    return true;
-  }
-  if (uri == "/api/hooks" && method == HTTP_POST) {
-    handleHooksPost();
-    return true;
-  }
-  if (uri == "/api/hooks" && method == HTTP_DELETE) {
-    handleHooksDelete();
-    return true;
-  }
-  if (uri == "/api/hooks/test" && method == HTTP_POST) {
-    handleHookTestPost();
-    return true;
-  }
-#ifdef MQTT_HOST
-  if (uri == "/api/mqtt") {
-    if (method == HTTP_GET) {
-      handleMqttGet();
-      return true;
-    }
-    if (method == HTTP_POST) {
-      handleMqttPost();
-      return true;
-    }
-  }
-#endif
-  if (uri == "/api/remotes/actions") {
-    if (method == HTTP_GET) {
-      sendJson(200, remoteActionsJson());
-      return true;
-    }
-    if (method == HTTP_POST) {
-      handleRemoteActionsPost();
-      return true;
-    }
-  }
-  if (uri == "/api/remotes" && method == HTTP_GET) {
-    handleRemotesGet();
-    return true;
-  }
-  if (uri.startsWith("/api/remotes/")) {
-    const String rest = uri.substring(strlen("/api/remotes/"));
     String id = rest;
     String action = "";
     if (rest.endsWith("/bind")) {
@@ -1350,6 +1259,48 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
       return true;
     }
   }
+  return false;
+}
+
+bool dispatchApiLogs(const String& uri, HTTPMethod method) {
+  if (uri == "/api/logs" && method == HTTP_GET) {
+    handleLogsGet();
+    return true;
+  }
+  if (uri == "/api/logs" && method == HTTP_DELETE) {
+    handleLogsDelete();
+    return true;
+  }
+  return false;
+}
+
+bool dispatchApiPairing(const String& uri, HTTPMethod method) {
+  if (uri == "/api/pairing") {
+    if (method == HTTP_POST) {
+      handlePairingPost();
+      return true;
+    }
+    if (method == HTTP_GET) {
+      handlePairingGet();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool dispatchApiSystem(const String& uri, HTTPMethod method) {
+  if (uri == "/api/status" && method == HTTP_GET) {
+    handleStatusGet();
+    return true;
+  }
+  if (uri == "/api/devices" && method == HTTP_GET) {
+    handleDevicesGet();
+    return true;
+  }
+  if (uri == "/api/hostname" && method == HTTP_POST) {
+    handleHostnamePost();
+    return true;
+  }
   if (uri == "/api/backup" && method == HTTP_GET) {
     handleBackupGet();
     return true;
@@ -1358,6 +1309,42 @@ bool dispatchApiMisc(const String& uri, HTTPMethod method) {
     handleRestorePost();
     return true;
   }
+  return false;
+}
+
+bool dispatchApiHooks(const String& uri, HTTPMethod method) {
+  if (uri == "/api/hooks" && method == HTTP_GET) {
+    handleHooksGet();
+    return true;
+  }
+  if (uri == "/api/hooks" && method == HTTP_POST) {
+    handleHooksPost();
+    return true;
+  }
+  if (uri == "/api/hooks" && method == HTTP_DELETE) {
+    handleHooksDelete();
+    return true;
+  }
+  if (uri == "/api/hooks/test" && method == HTTP_POST) {
+    handleHookTestPost();
+    return true;
+  }
+  return false;
+}
+
+bool dispatchApiMqtt(const String& uri, HTTPMethod method) {
+#ifdef MQTT_HOST
+  if (uri == "/api/mqtt") {
+    if (method == HTTP_GET) {
+      handleMqttGet();
+      return true;
+    }
+    if (method == HTTP_POST) {
+      handleMqttPost();
+      return true;
+    }
+  }
+#endif
   return false;
 }
 
@@ -1374,7 +1361,11 @@ void dispatch() {
   if (dispatchApiLights(uri, method)) return;
   if (dispatchApiScenes(uri, method)) return;
   if (dispatchApiRemotes(uri, method)) return;
-  if (dispatchApiMisc(uri, method)) return;
+  if (dispatchApiLogs(uri, method)) return;
+  if (dispatchApiPairing(uri, method)) return;
+  if (dispatchApiSystem(uri, method)) return;
+  if (dispatchApiHooks(uri, method)) return;
+  if (dispatchApiMqtt(uri, method)) return;
 
   sendJsonError(404, "not found");
 }
