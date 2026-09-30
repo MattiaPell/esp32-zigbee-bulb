@@ -93,7 +93,7 @@ void postEventTask(void *arg __attribute__((unused))) {
     WiFiClient plain;
     WiFiClientSecure secure;
     if (postTaskArgs.url.startsWith("https://")) {
-      secure.setInsecure();  // TLS without certificate verification (see README).
+      secure.useBuiltinCACertBundle();
       began = http.begin(secure, postTaskArgs.url);
     } else {
       began = http.begin(plain, postTaskArgs.url);

@@ -4,6 +4,29 @@
 #include "bulb_registry.h"
 #include <cstdint>
 
+// Define missing dependencies missing from test context
+void bulbApplyState(Bulb * /*bulb*/, const BulbState & /*wanted*/, uint16_t /*transitionDs*/) {}
+
+// Mocks provided by test_config_backup or we redefine them specifically
+#define scenesCount mock_scenesCount_scenes
+#define sceneNameAt mock_sceneNameAt_scenes
+#define sceneEntryAt mock_sceneEntryAt_scenes
+#define sceneImport mock_sceneImport_scenes
+#define isValidSceneName mock_isValidSceneName_scenes
+
+#define registryCount mock_registryCount_scenes
+#define registryGet mock_registryGet_scenes
+#define serializeBulbState mock_serializeBulbState_scenes
+#define deserializeBulbState mock_deserializeBulbState_scenes
+#define registryFlush mock_registryFlush_scenes
+
+size_t mock_registryCount_scenes() { return 0; }
+Bulb* mock_registryGet_scenes(size_t /*index*/) { return nullptr; }
+void mock_registryFlush_scenes() {}
+
+String mock_serializeBulbState_scenes(const BulbState & /*state*/) { return ""; }
+bool mock_deserializeBulbState_scenes(BulbState & /*state*/, const String & /*data*/) { return true; }
+
 // Mock variables
 static size_t mockRegistryCount = 0;
 
@@ -22,29 +45,29 @@ void runSceneTests() {
   check::begin("scenes: isValidSceneName");
 
   // Valid names
-  CHECK(isValidSceneName("a"));
-  CHECK(isValidSceneName("z"));
-  CHECK(isValidSceneName("0"));
-  CHECK(isValidSceneName("9"));
-  CHECK(isValidSceneName("-"));
-  CHECK(isValidSceneName("_"));
-  CHECK(isValidSceneName("a0-_"));
-  CHECK(isValidSceneName("my-scene"));
-  CHECK(isValidSceneName("my_scene"));
-  CHECK(isValidSceneName("1234567890"));
-  CHECK(isValidSceneName("a1b2c3d4e5"));
+  CHECK(mock_isValidSceneName_scenes("a"));
+  CHECK(mock_isValidSceneName_scenes("z"));
+  CHECK(mock_isValidSceneName_scenes("0"));
+  CHECK(mock_isValidSceneName_scenes("9"));
+  CHECK(mock_isValidSceneName_scenes("-"));
+  CHECK(mock_isValidSceneName_scenes("_"));
+  CHECK(mock_isValidSceneName_scenes("a0-_"));
+  CHECK(mock_isValidSceneName_scenes("my-scene"));
+  CHECK(mock_isValidSceneName_scenes("my_scene"));
+  CHECK(mock_isValidSceneName_scenes("1234567890"));
+  CHECK(mock_isValidSceneName_scenes("a1b2c3d4e5"));
 
   // Boundary conditions (length)
-  CHECK(!isValidSceneName("")); // Empty string
-  CHECK(isValidSceneName("12345678901234567890")); // Exact max length (20)
-  CHECK(!isValidSceneName("123456789012345678901")); // Exceeds max length (21)
+  CHECK(!mock_isValidSceneName_scenes("")); // Empty string
+  CHECK(mock_isValidSceneName_scenes("12345678901234567890")); // Exact max length (20)
+  CHECK(!mock_isValidSceneName_scenes("123456789012345678901")); // Exceeds max length (21)
 
   // Invalid characters
-  CHECK(!isValidSceneName(" ")); // Space
-  CHECK(!isValidSceneName("A")); // Uppercase
-  CHECK(!isValidSceneName("my scene"));
-  CHECK(!isValidSceneName("My-Scene"));
-  CHECK(!isValidSceneName("my-scene!"));
-  CHECK(!isValidSceneName("my@scene"));
-  CHECK(!isValidSceneName("scene/1"));
+  CHECK(!mock_isValidSceneName_scenes(" ")); // Space
+  CHECK(!mock_isValidSceneName_scenes("A")); // Uppercase
+  CHECK(!mock_isValidSceneName_scenes("my scene"));
+  CHECK(!mock_isValidSceneName_scenes("My-Scene"));
+  CHECK(!mock_isValidSceneName_scenes("my-scene!"));
+  CHECK(!mock_isValidSceneName_scenes("my@scene"));
+  CHECK(!mock_isValidSceneName_scenes("scene/1"));
 }
