@@ -46,10 +46,14 @@ uint32_t backoffMs(uint8_t attempt) {  // attempt 1..: 1 s, 5 s, 30 s
 // Names, scene names and details are ASCII-restricted by construction; this
 // only strips characters that would break the JSON string.
 void jsonSafeAppend(String &out, const char *text) {
-  for (const char *p = text; *p != '\0'; ++p) {
-    char c = *p;
-    if (c == '"' || c == '\\' || (unsigned char)c < 0x20) c = ' ';
-    out += c;
+  while (*text) {
+    if (*text == '"' || *text == '\\') {
+      out += '\\';
+      out += *text;
+    } else if (*text >= ' ' && *text <= '~') {
+      out += *text;
+    }
+    ++text;
   }
 }
 
@@ -80,7 +84,7 @@ struct PostTaskArgs {
 };
 PostTaskArgs postTaskArgs;
 
-void postEventTask(void *arg) {
+void postEventTask(void *arg __attribute__((unused))) {
   {
     HTTPClient http;
     http.setConnectTimeout(WEBHOOK_CONNECT_TIMEOUT_MS);
@@ -257,8 +261,9 @@ String webHookUrlAt(size_t index) {
 }
 
 bool isValidWebHookUrl(const String &url) {
-  if (url.length() == 0 || url.length() > WEBHOOK_MAX_URL_LENGTH) return false;
+  if (url.length() < 10 || url.length() > WEBHOOK_MAX_URL_LENGTH) return false;
   if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
+  if (url.indexOf(' ') >= 0) return false;
   for (unsigned i = 0; i < url.length(); ++i) {
     char c = url[i];
     if (c <= 0x20 || c == '"' || c == '\\') return false;

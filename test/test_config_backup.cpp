@@ -1,6 +1,19 @@
 #include "check.h"
 #include <cstdint>
 
+// We need to compile config_backup.cpp to test its internal function skipJsonString.
+// Since test/run.sh compiles all test/*.cpp files together, we need to be careful
+// with mock definitions to avoid multiple definition errors (especially with
+// test_light_timers.cpp which already defines some mocks).
+// For test_config_backup, we can just declare the few mocks needed to compile
+// config_backup.cpp, making sure not to redefine things already in other test files.
+// Wait, actually config_backup.cpp uses functions like extractObjectArray, skipJsonString
+// which are in the anonymous namespace in config_backup.cpp.
+
+// The simplest way to test a function inside an anonymous namespace is to include
+// the cpp file directly. But we must stub any missing dependencies that aren't provided
+// by other test files.
+
 #include "bulb_registry.h"
 #include "config.h"
 #include "json_lite.h"

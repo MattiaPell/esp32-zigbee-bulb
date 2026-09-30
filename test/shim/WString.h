@@ -121,6 +121,8 @@ class String {
   void reserve(unsigned int n) { s_.reserve(n); }
 
   void toLowerCase() {
+    for (char &c : s_) {
+      if (c >= 'A' && c <= 'Z') c += 32;
     for (size_t i = 0; i < s_.size(); ++i) {
       s_[i] = std::tolower(static_cast<unsigned char>(s_[i]));
     }
