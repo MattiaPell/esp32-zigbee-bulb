@@ -113,6 +113,7 @@ void postEventTask(void *arg __attribute__((unused))) {
       began = http.begin(plain, postTaskArgs.url);
     }
     if (!began) {
+      debugLogPrintf("Webhooks: %s begin failed\n", postTaskArgs.url.c_str());
       postTaskArgs.success = false;
       postTaskArgs.done = true;
     } else {
@@ -143,6 +144,7 @@ bool beginPostEvent(const String &url, const String &body) {
 
   if (xTaskCreate(postEventTask, "webhook", 4096, NULL, 1, NULL) != pdPASS) {
       postTaskArgs.inUse = false;
+      debugLogPrintln("Webhooks: task create failed");
       return false;
   }
   return true;
