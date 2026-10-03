@@ -1,8 +1,11 @@
 #include "check.h"
+
 #include <cstdint>
 
-// Override these specific function names so they don't clash with test_light_timers.cpp during linking.
-// We only need them to compile web_hooks.cpp.
+// Rename the symbols this translation unit defines so they don't collide with
+// the other suites: test_light_timers.cpp and test_bulb_registry.cpp each own
+// their own millis()/debugLog* variants, and everything is linked into a
+// single host binary.
 #define millis my_millis
 #define debugLogPrintf my_debugLogPrintf
 #define debugLogPrintln my_debugLogPrintln
@@ -13,86 +16,56 @@ void my_debugLogPrintf(const char *, ...) {}
 void my_debugLogPrintln(const char *) {}
 
 #define pdPASS 1
-
 void vTaskDelete(void *) {}
-int xTaskCreate(void (*)(void*), const char*, uint32_t, void*, uint32_t, void*) { return pdPASS; }
+int xTaskCreate(void (*)(void *), const char *, uint32_t, void *, uint32_t, void *) {
+  return pdPASS;
+}
 
-// WiFi and HTTP stubs
-class WiFiClient {};
-class WiFiClientSecure : public WiFiClient {
-public:
-    void setInsecure() {}
-#include <string.h>
+// The shims for these headers are empty, so the classes web_hooks.cpp touches
+// are declared here before it is included -- only with the surface it uses.
 
-#include "WString.h"
-#include "config.h"
-#include "Preferences.h"
-
-// Stubs for testing web_hooks.cpp
 class WiFiClient {
 public:
   WiFiClient() {}
 };
 
-class WiFiClientSecure : public WiFiClient {
+struct sslclient_context;  // opaque: web_hooks.cpp only passes the pointer on
+
+class NetworkClientSecure : public WiFiClient {
 public:
-  WiFiClientSecure() {}
-  void setInsecure() {}
+  NetworkClientSecure() {}
+
+protected:
+  // Mirrors the std::shared_ptr<sslclient_context> member of the real class.
+  struct SslContext {
+    sslclient_context *ctx = nullptr;
+    sslclient_context *get() const { return ctx; }
+  } sslclient;
+  bool _use_ca_bundle = false;
 };
+
+// Stand-in for ssl_client.h's hook (see BundleVerifyingClient in web_hooks.cpp).
+void attach_ssl_certificate_bundle(sslclient_context *, bool) {}
 
 class HTTPClient {
 public:
-    void setConnectTimeout(int) {}
-    void setTimeout(int) {}
-    bool begin(WiFiClient&, const String&) { return true; }
-    void addHeader(const String&, const String&) {}
-    int POST(const String&) { return 200; }
-    void end() {}
-};
-
-#define WL_CONNECTED 1
-class WiFiClass {
-public:
-    int status() { return WL_CONNECTED; }
-};
-WiFiClass WiFi;
-
-// We need to rename webHookEvent inside web_hooks.cpp to avoid conflict with test_light_timers.cpp
-#define webHookEvent webHookEvent_real
-
-// Temporarily suppress unused parameter warning in web_hooks.cpp for the mock build
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#pragma GCC diagnostic ignored "-Wunused-function"
-#include "../web_hooks.cpp"
-#pragma GCC diagnostic pop
-  HTTPClient() {}
   void setConnectTimeout(uint32_t) {}
   void setTimeout(uint32_t) {}
-  bool begin(WiFiClient&, const String&) { return true; }
-  void addHeader(const char*, const char*) {}
-  int POST(const String&) { return 200; }
+  bool begin(WiFiClient &, const String &) { return true; }
+  void addHeader(const String &, const String &) {}
+  int POST(const String &) { return 200; }
   void end() {}
 };
 
+#define WL_CONNECTED 3
 class WiFiClass {
 public:
-  int status() { return 3; } // WL_CONNECTED = 3
+  int status() { return WL_CONNECTED; }
 };
 WiFiClass WiFi;
-#define WL_CONNECTED 3
 
-#define pdPASS 1
-typedef void* TaskHandle_t;
-int xTaskCreate(void (*)(void*), const char*, uint32_t, void*, uint32_t, TaskHandle_t*) { return pdPASS; }
-void vTaskDelete(TaskHandle_t) {}
-
-uint32_t millis();
-
-#define FW_VERSION "1.0.0"
-
-// Rename the real webHookEvent to avoid conflicting with the mock in test_light_timers.cpp
-#define webHookEvent real_webHookEvent
+// test_light_timers.cpp defines its own webHookEvent mock: rename ours.
+#define webHookEvent webHookEvent_web_hooks
 
 #include "../web_hooks.cpp"
 
@@ -126,6 +99,7 @@ void runWebHooksTests() {
   out = "start_";
   jsonSafeAppend(out, "end");
   CHECK_EQ(out, "start_end");
+
   check::begin("web hooks");
 
   // Happy paths
@@ -138,7 +112,7 @@ void runWebHooksTests() {
   while (maxUrl.length() < WEBHOOK_MAX_URL_LENGTH) {
     maxUrl += "a";
   }
-  CHECK_EQ(maxUrl.length(), WEBHOOK_MAX_URL_LENGTH);
+  CHECK_EQ(maxUrl.length(), (unsigned)WEBHOOK_MAX_URL_LENGTH);
   CHECK(isValidWebHookUrl(maxUrl));
 
   // URL too long

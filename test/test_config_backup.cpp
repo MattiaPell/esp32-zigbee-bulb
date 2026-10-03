@@ -57,9 +57,15 @@ String mock_sceneEntryAt_cfg(size_t) { return ""; }
 bool mock_isValidSceneName_cfg(const String&) { return false; }
 bool mock_sceneImport_cfg(const String&, const String&) { return false; }
 
-size_t webHookUrlCount() { return 0; }
-String webHookUrlAt(size_t) { return ""; }
-bool webHookUrlAdd(const String&) { return false; }
+// web_hooks.cpp itself is compiled into the suite by test_web_hooks.cpp, so
+// these must be renamed or they collide with the real definitions at link time.
+#define webHookUrlCount mock_webHookUrlCount_cfg
+#define webHookUrlAt mock_webHookUrlAt_cfg
+#define webHookUrlAdd mock_webHookUrlAdd_cfg
+
+size_t mock_webHookUrlCount_cfg() { return 0; }
+String mock_webHookUrlAt_cfg(size_t) { return ""; }
+bool mock_webHookUrlAdd_cfg(const String&) { return false; }
 
 #include "../config_backup.cpp"
 

@@ -27,17 +27,6 @@ void mock_registryFlush_scenes() {}
 String mock_serializeBulbState_scenes(const BulbState & /*state*/) { return ""; }
 bool mock_deserializeBulbState_scenes(BulbState & /*state*/, const String & /*data*/) { return true; }
 
-// Mock variables
-static size_t mockRegistryCount = 0;
-
-size_t registryCount() { return mockRegistryCount; }
-Bulb* registryGet(size_t /*index*/) { return nullptr; }
-void registryFlush() {}
-
-String serializeBulbState(const BulbState & /*state*/) { return ""; }
-bool deserializeBulbState(BulbState & /*state*/, const String & /*data*/) { return true; }
-void bulbApplyState(Bulb * /*bulb*/, const BulbState & /*wanted*/, uint16_t /*transitionDs*/) {}
-
 // Directly include scenes.cpp to compile its contents
 #include "../scenes.cpp"
 
