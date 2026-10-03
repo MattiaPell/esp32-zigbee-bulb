@@ -351,8 +351,10 @@ events: `boot`, `bulb_joined`, `bulb_removed`, `bulb_online`, `bulb_offline`,
 - Each URL gets its own POST; a failing one is retried up to 3 times with a
   1 s / 5 s / 30 s backoff, then the event moves on and is eventually
   dropped. Nothing is sent while Wi-Fi is down.
-- `https://` URLs are accepted, but the server certificate is **not**
-  verified (no CA store on the device): use them only on trusted networks.
+- `https://` URLs are accepted and the server certificate **is** verified
+  against the CA bundle embedded in the firmware (Espressif's full bundle):
+  self-signed or private-CA endpoints are rejected, so use a publicly trusted
+  certificate on the receiver.
 - Each POST blocks the main loop for up to ~2 s (no offloading available),
   so point the hooks at fast, local receivers.
 
@@ -438,9 +440,9 @@ scene or send commands afterwards.
 - **`candle` is a coordinator-side simulation**, not a bulb-native effect: it
   steps brightness and white temperature with short transitions.
   `color_loop` uses the native ZCL command and needs color bulbs.
-- **MQTT is QoS 0 over plain TCP** (no TLS), and `https://` webhook targets
-  are not certificate-verified (no CA store on the device): keep both on a
-  trusted LAN.
+- **MQTT is QoS 0 over plain TCP** (no TLS): keep it on a trusted LAN.
+  `https://` webhook targets *do* verify the server certificate (embedded CA
+  bundle), so they need a publicly trusted certificate.
 - **The web server is single-threaded**: during a multipart OTA upload no
   other request is served, and long handlers block the loop.
 - **`POST /api/ota` is for a trusted LAN only** (`OTA_TOKEN` must be defined
