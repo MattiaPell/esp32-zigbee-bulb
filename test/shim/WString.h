@@ -25,6 +25,8 @@ class String {
   String(unsigned long v) : s_(std::to_string(v)) {}
   String(long long v) : s_(std::to_string(v)) {}
   String(unsigned long long v) : s_(std::to_string(v)) {}
+  String(const char *s, unsigned int len) : s_(s != nullptr ? std::string(s, len) : "") {}
+
   String(unsigned int v, int base) {
     if (base == 16) {
       char buf[32];
@@ -119,6 +121,17 @@ class String {
     buf[size - 1] = '\0';
   }
   void reserve(unsigned int n) { s_.reserve(n); }
+
+  bool endsWith(const char *suffix) const {
+    size_t len = strlen(suffix);
+    return s_.size() >= len && s_.compare(s_.size() - len, len, suffix) == 0;
+  }
+
+  void remove(unsigned int index, unsigned int count = (unsigned int)-1) {
+    if (index < s_.size()) {
+      s_.erase(index, count);
+    }
+  }
 
   void toLowerCase() {
     for (char &c : s_) {
