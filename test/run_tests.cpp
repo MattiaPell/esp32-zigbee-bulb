@@ -19,6 +19,7 @@ int main() {
   runBulbRegistryTests();
   runSceneTests();
   runConfigBackupTests();
+  runRemoteControlsTests();
 
   const int failed = check::failures();
   const int total = check::checks();
