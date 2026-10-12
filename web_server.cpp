@@ -487,9 +487,10 @@ bool isAuthorized(HTTPMethod method) {
           origin != expectedBare && !origin.startsWith(expectedBare + ":")) {
         return false;
       }
+    } else {
+      // If Origin is NOT present on a state-changing request, reject it to prevent CSRF.
+      return false;
     }
-    // If Origin is NOT present, we rely on the Host check (already passed above).
-    // Note: Some browsers don't send Origin for same-origin requests, so we allow it if absent.
   }
 
   return true;
