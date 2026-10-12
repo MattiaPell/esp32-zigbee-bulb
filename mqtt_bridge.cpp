@@ -299,6 +299,7 @@ void publishDiagnostics(const Bulb *b) {
 void dispatchPacket(uint8_t fixedHeader, const uint8_t *data, size_t len);
 
 bool parseIncoming() {
+  inBuf.reserve(1024);
   while (client.available() > 0) {
     if (inBuf.length() >= 1024) {  // Runaway buffer: connection is garbage.
       inBuf = "";
