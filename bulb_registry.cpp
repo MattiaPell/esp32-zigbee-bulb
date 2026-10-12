@@ -46,6 +46,7 @@ void serializeRuntimeAddr(const Bulb &b, String &out) {
   out += String(b.endpoint);
 }
 
+// Helper to parse address strings generated in the registry format.
 void deserializeRuntimeAddr(Bulb &b, const String &s) {
   int comma = s.indexOf(',');
   if (comma < 0) return;
@@ -103,26 +104,52 @@ void registryBegin() {
     char key[16];
     int len = snprintf(key, sizeof(key), "b%zu", i);
 
-    if (len > 0 && len < (int)sizeof(key) - 1) {
-      key[len] = 'i';
-      key[len + 1] = '\0';
-      prefs.getBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+    if (len > 0 && len < (int)sizeof(key)) {
+      String data = prefs.getString(key, "");
+      if (data.length() > 0 && data.indexOf('|') >= 0) {
+        int p1 = data.indexOf('|');
+        int p2 = data.indexOf('|', p1 + 1);
+        int p3 = data.indexOf('|', p2 + 1);
 
-      key[len] = 'n';
-      key[len + 1] = '\0';
-      String name = prefs.getString(key, "");
-      sanitizeName(b.name, sizeof(b.name), name.c_str());
+        if (p1 > 0 && p2 > p1 && p3 > p2) {
+          String ieeeHex = data.substring(0, p1);
+          if (ieeeHex.length() == 16) {
+            for (int k = 0; k < 8; ++k) {
+              const char hi = ieeeHex[14 - 2 * k];
+              const char lo = ieeeHex[15 - 2 * k];
+              const uint8_t hiV = hi <= '9' ? (uint8_t)(hi - '0') : (uint8_t)(tolower(hi) - 'a' + 10);
+              const uint8_t loV = lo <= '9' ? (uint8_t)(lo - '0') : (uint8_t)(tolower(lo) - 'a' + 10);
+              b.ieee[k] = (uint8_t)((hiV << 4) | loV);
+            }
+          }
+          String name = data.substring(p1 + 1, p2);
+          sanitizeName(b.name, sizeof(b.name), name.c_str());
 
-      key[len] = 's';
-      key[len + 1] = '\0';
-      deserializeBulbState(b.state, prefs.getString(key, ""));
+          String stateStr = data.substring(p2 + 1, p3);
+          deserializeBulbState(b.state, stateStr);
 
-      // Short address and endpoint survive reboots in practice (the network
-      // resumes and bulbs keep their assignment); refreshed from the binding
-      // table and reports anyway.
-      key[len] = 'a';
-      key[len + 1] = '\0';
-      deserializeRuntimeAddr(b, prefs.getString(key, ""));
+          String addrStr = data.substring(p3 + 1);
+          deserializeRuntimeAddr(b, addrStr);
+        }
+      } else if (len < (int)sizeof(key) - 1) {
+        // Fallback to legacy chunked schema
+        key[len] = 'i';
+        key[len + 1] = '\0';
+        prefs.getBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+
+        key[len] = 'n';
+        key[len + 1] = '\0';
+        String name = prefs.getString(key, "");
+        sanitizeName(b.name, sizeof(b.name), name.c_str());
+
+        key[len] = 's';
+        key[len + 1] = '\0';
+        deserializeBulbState(b.state, prefs.getString(key, ""));
+
+        key[len] = 'a';
+        key[len + 1] = '\0';
+        deserializeRuntimeAddr(b, prefs.getString(key, ""));
+      }
     }
     b.online = false;
   }
@@ -242,24 +269,24 @@ void registryFlush() {
     char key[16];
     int len = snprintf(key, sizeof(key), "b%zu", i);
 
-    if (len > 0 && len < (int)sizeof(key) - 1) {
-      key[len] = 'i';
-      key[len + 1] = '\0';
-      prefs.putBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+    if (len > 0 && len < (int)sizeof(key)) {
+      char ieeeBuf[17];
+      int ieeeOff = 0;
+      for (int j = 7; j >= 0; --j) {
+        ieeeOff += snprintf(ieeeBuf + ieeeOff, sizeof(ieeeBuf) - ieeeOff, "%02x", b.ieee[j]);
+      }
 
-      key[len] = 'n';
-      key[len + 1] = '\0';
-      prefs.putString(key, b.name);
+      String addrStr;
+      serializeRuntimeAddr(b, addrStr);
 
-      key[len] = 's';
-      key[len + 1] = '\0';
-      prefs.putString(key, serializeBulbState(b.state));
+      char buf[256];
+      snprintf(buf, sizeof(buf), "%s|%s|%s|%s",
+               ieeeBuf,
+               b.name,
+               serializeBulbState(b.state).c_str(),
+               addrStr.c_str());
 
-      String addr;
-      serializeRuntimeAddr(b, addr);
-      key[len] = 'a';
-      key[len + 1] = '\0';
-      prefs.putString(key, addr);
+      prefs.putString(key, String(buf));
     }
   }
 }
