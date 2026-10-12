@@ -39,5 +39,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare secrets stub
+        run: cp secrets.example.h secrets.h
+
       - name: Run host-side unit tests
         run: bash test/run.sh
