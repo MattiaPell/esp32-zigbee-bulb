@@ -36,15 +36,38 @@ int findFreeSpot() {
   return -1;
 }
 
+void saveSceneNames() {
+  String blob;
+  blob.reserve(MAX_SCENES * (MAX_SCENE_NAME_LENGTH + 1));
+  for (uint8_t i = 0; i < MAX_SCENES; ++i) {
+    if (i > 0) blob += "|";
+    blob += String(scenes[i].name);
+  }
+  prefs.putString("names", blob);
+}
+
 }  // namespace
 
 void scenesBegin() {
   prefs.begin("scenes", false);
   sceneCountValue = prefs.getUChar("count", 0);
   if (sceneCountValue > MAX_SCENES) sceneCountValue = MAX_SCENES;
-  for (uint8_t i = 0; i < MAX_SCENES; ++i) {
-    String name = prefs.getString(("s" + String(i) + "n").c_str(), "");
-    name.toCharArray(scenes[i].name, sizeof(scenes[i].name));
+
+  String namesBlob = prefs.getString("names", "");
+  if (namesBlob.length() > 0) {
+    int start = 0;
+    for (uint8_t i = 0; i < MAX_SCENES; ++i) {
+      int bar = namesBlob.indexOf('|', start);
+      String name = bar < 0 ? namesBlob.substring(start) : namesBlob.substring(start, bar);
+      start = bar < 0 ? namesBlob.length() : bar + 1;
+      name.toCharArray(scenes[i].name, sizeof(scenes[i].name));
+    }
+  } else {
+    for (uint8_t i = 0; i < MAX_SCENES; ++i) {
+      String name = prefs.getString(("s" + String(i) + "n").c_str(), "");
+      name.toCharArray(scenes[i].name, sizeof(scenes[i].name));
+    }
+    saveSceneNames();
   }
 }
 
@@ -85,6 +108,7 @@ bool sceneImport(const String &name, const String &data) {
     at = findFreeSpot();
     if (at < 0) return false;
     name.toCharArray(scenes[at].name, sizeof(scenes[at].name));
+    saveSceneNames();
   }
   prefs.putString(("s" + String(at) + "d").c_str(), data);
   prefs.putUChar("count", scenesCount());
@@ -132,6 +156,7 @@ bool sceneCapture(const String &name) {
       return false;
     }
     name.toCharArray(scenes[at].name, sizeof(scenes[at].name));
+    saveSceneNames();
   }
 
   prefs.putString(("s" + String(at) + "d").c_str(), data);
@@ -193,6 +218,7 @@ void sceneDelete(const String &name) {
   prefs.remove(("s" + String(at) + "n").c_str());
   prefs.remove(("s" + String(at) + "d").c_str());
   scenes[at].name[0] = '\0';
+  saveSceneNames();
   prefs.putUChar("count", scenesCount());
   debugLogPrintf("Scenes: deleted '%s'\n", name.c_str());
 }
