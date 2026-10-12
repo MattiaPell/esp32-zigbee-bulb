@@ -17,4 +17,5 @@ void runBulbRegistryTests();
 void runSceneTests();
 void runConfigBackupTests();
 void runRemoteControlsTests();
+void runIdentifyTests();
 void runEffectsTests();
