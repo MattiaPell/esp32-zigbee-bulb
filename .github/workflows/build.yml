@@ -43,4 +43,6 @@ jobs:
         run: cp secrets.example.h secrets.h
 
       - name: Run host-side unit tests
-        run: bash test/run.sh
+        run: |
+          cp secrets.example.h secrets.h
+          bash test/run.sh

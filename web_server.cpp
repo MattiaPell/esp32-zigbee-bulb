@@ -165,6 +165,80 @@ void handleLightGet(const String &id) {
   sendJson(200, lightJson(b, server.hasArg("debug")));
 }
 
+bool parsePatchName(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String name;
+  if (jsonGetString(body, "name", name)) {
+    if (name.length() > 0 && name.length() <= 20) {
+      registryRename(b, name.c_str());
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid name";
+      return false;
+    }
+  }
+  return true;
+}
+
+void parsePatchPower(Bulb *b, const String &body, bool &changed) {
+  bool on;
+  if (jsonGetBool(body, "on", on)) {
+    on ? bulbSendOn(b) : bulbSendOff(b);
+    changed = true;
+  }
+}
+
+void parsePatchBrightness(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+  long brightness;
+  if (jsonGetInt(body, "brightness", brightness)) {
+    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
+    changed = true;
+  }
+}
+
+void parsePatchKelvin(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+  long kelvin;
+  if (jsonGetInt(body, "kelvin", kelvin)) {
+    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
+    changed = true;
+  }
+}
+
+bool parsePatchRgbHex(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String rgbHex;
+  if (jsonGetString(body, "rgb_hex", rgbHex)) {
+    unsigned r = 0, g = 0, bl = 0;
+    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
+    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
+      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid rgb_hex";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool parsePatchMode(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String mode;
+  if (jsonGetString(body, "mode", mode)) {
+    if (mode == "white") {
+      bulbSendKelvin(b, b->state.kelvin, tds);
+      changed = true;
+    } else if (mode == "rgb") {
+      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid mode";
+      return false;
+    }
+  }
+  return true;
+}
+
 bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg) {
   // Transition override: 0 = cambio colore istantaneo (usato dal flash polizia).
   long transition = (long)DEFAULT_TRANSITION_DS;
@@ -182,64 +256,13 @@ bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outE
   }
 
   bool changed = false;
-  String name;
-  if (jsonGetString(body, "name", name)) {
-    if (name.length() > 0 && name.length() <= 20) {
-      registryRename(b, name.c_str());
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid name";
-      return false;
-    }
-  }
 
-  bool on;
-  if (jsonGetBool(body, "on", on)) {
-    on ? bulbSendOn(b) : bulbSendOff(b);
-    changed = true;
-  }
-
-  long brightness;
-  if (jsonGetInt(body, "brightness", brightness)) {
-    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
-    changed = true;
-  }
-
-  long kelvin;
-  if (jsonGetInt(body, "kelvin", kelvin)) {
-    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
-    changed = true;
-  }
-
-  String rgbHex;
-  if (jsonGetString(body, "rgb_hex", rgbHex)) {
-    unsigned r = 0, g = 0, bl = 0;
-    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
-    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
-      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid rgb_hex";
-      return false;
-    }
-  }
-
-  String mode;
-  if (jsonGetString(body, "mode", mode)) {
-    if (mode == "white") {
-      bulbSendKelvin(b, b->state.kelvin, tds);
-      changed = true;
-    } else if (mode == "rgb") {
-      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid mode";
-      return false;
-    }
-  }
+  if (!parsePatchName(b, body, outHttpCode, outErrorMsg, changed)) return false;
+  parsePatchPower(b, body, changed);
+  parsePatchBrightness(b, body, tds, changed);
+  parsePatchKelvin(b, body, tds, changed);
+  if (!parsePatchRgbHex(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
+  if (!parsePatchMode(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
 
   if (!changed) {
     outHttpCode = 400;
@@ -309,6 +332,10 @@ void handleLightDebugGet(const String &id) {
 
 void handlePairingPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds = PAIRING_SECONDS;
   jsonGetInt(body, "seconds", seconds);
   if (seconds < 30) seconds = 30;
@@ -483,9 +510,10 @@ bool isAuthorized(HTTPMethod method) {
           origin != expectedBare && !origin.startsWith(expectedBare + ":")) {
         return false;
       }
+    } else {
+      // If Origin is NOT present on a state-changing request, reject it to prevent CSRF.
+      return false;
     }
-    // If Origin is NOT present, we rely on the Host check (already passed above).
-    // Note: Some browsers don't send Origin for same-origin requests, so we allow it if absent.
   }
 
   return true;
@@ -590,6 +618,10 @@ class OtaRequestHandler : public RequestHandler {
 
 void handleLightsAllPatch() {
   const String body = server.arg("plain");
+  if (body.length() > 1024) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool on = false;
   long brightness = 0, kelvin = 0;
   String rgbHex;
@@ -647,6 +679,10 @@ void handleScenesGet() {
 
 void handleSceneCreate() {
   const String body = server.arg("plain");
+  if (body.length() > 1024) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "name", name)) {
     sendJsonError(400, "missing name");
@@ -727,6 +763,10 @@ void handleEffectsGet() {
 
 void handleEffectsPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String id;
   if (!jsonGetString(body, "effect", id)) {
     sendJsonError(400, "missing effect");
@@ -747,6 +787,10 @@ void handleAdaptiveGet() {
 
 void handleAdaptivePost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool enabled = false;
   long tz = 0;
   const bool hasEnabled = jsonGetBool(body, "enabled", enabled);
@@ -779,7 +823,15 @@ void handleHooksGet() {
 }
 
 void handleHooksPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlAdd(url)) {
     sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
@@ -789,7 +841,15 @@ void handleHooksPost() {
 }
 
 void handleHooksDelete() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlRemove(url)) {
     sendJsonError(404, "unknown url");
@@ -799,7 +859,15 @@ void handleHooksDelete() {
 }
 
 void handleHookTestPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookTest(url)) {
     sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
@@ -834,7 +902,15 @@ void handleMqttGet() {
 }
 
 void handleMqttPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool enabled;
   if (!jsonGetBool(body, "enabled", enabled)) {
     sendJsonError(400, "missing enabled");
@@ -854,6 +930,10 @@ void handleRemotesGet() {
 
 void handleRemotePatch(const String &id) {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "name", name) || name.length() == 0 ||
       name.length() > 20 || !remoteRename(id, name.c_str())) {
@@ -873,6 +953,10 @@ void handleRemoteDelete(const String &id) {
 
 void handleRemoteBindPost(const String &id) {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String light;
   if (!jsonGetString(body, "light", light)) {
     sendJsonError(400, "missing light");
@@ -892,6 +976,10 @@ void handleRemoteBindPost(const String &id) {
 
 void handleRemoteActionsPost() {
   const String body = server.arg("plain");
+  if (body.length() > 2048) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String applied;
   if (!remoteSetActions(body, applied)) {
     sendJsonError(400, "invalid actions (see GET /api/remotes/actions)");
@@ -903,10 +991,18 @@ void handleRemoteActionsPost() {
 // --- Backup / restore ------------------------------------------------------------
 
 void handleBackupGet() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   sendJson(200, configBackupJson());
 }
 
 void handleRestorePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 12288) {
     sendJsonError(400, "body too large");
@@ -930,6 +1026,10 @@ void handleLightTimerPost(const String &id) {
     return;
   }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds;
   if (!jsonGetInt(body, "seconds", seconds)) {
     sendJsonError(400, "missing seconds");
@@ -945,6 +1045,10 @@ void handleLightTimerPost(const String &id) {
 
 void handleAllTimerPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds;
   if (!jsonGetInt(body, "seconds", seconds)) {
     sendJsonError(400, "missing seconds");
@@ -1003,6 +1107,10 @@ void handleLightStepPost(const String &id) {
     return;
   }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long delta;
   if (!jsonGetInt(body, "delta", delta)) {
     sendJsonError(400, "missing delta");
@@ -1022,6 +1130,10 @@ void handleLightStepPost(const String &id) {
 
 void handleAllStepPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long delta;
   if (!jsonGetInt(body, "delta", delta)) {
     sendJsonError(400, "missing delta");
@@ -1056,7 +1168,15 @@ void handleAllStepPost() {
 }
 
 void handleHostnamePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "hostname", name) || !webSetHostname(name)) {
     sendJsonError(400, "invalid hostname (a-z, 0-9, '-', 1-31 chars)");

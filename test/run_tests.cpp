@@ -22,6 +22,7 @@ int main() {
   runConfigBackupTests();
   runRemoteControlsTests();
   runIdentifyTests();
+  runEffectsTests();
 
   const int failed = check::failures();
   const int total = check::checks();
