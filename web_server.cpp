@@ -309,6 +309,10 @@ void handleLightDebugGet(const String &id) {
 
 void handlePairingPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds = PAIRING_SECONDS;
   jsonGetInt(body, "seconds", seconds);
   if (seconds < 30) seconds = 30;
@@ -590,6 +594,10 @@ class OtaRequestHandler : public RequestHandler {
 
 void handleLightsAllPatch() {
   const String body = server.arg("plain");
+  if (body.length() > 1024) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool on = false;
   long brightness = 0, kelvin = 0;
   String rgbHex;
@@ -647,6 +655,10 @@ void handleScenesGet() {
 
 void handleSceneCreate() {
   const String body = server.arg("plain");
+  if (body.length() > 1024) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "name", name)) {
     sendJsonError(400, "missing name");
@@ -727,6 +739,10 @@ void handleEffectsGet() {
 
 void handleEffectsPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String id;
   if (!jsonGetString(body, "effect", id)) {
     sendJsonError(400, "missing effect");
@@ -747,6 +763,10 @@ void handleAdaptiveGet() {
 
 void handleAdaptivePost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool enabled = false;
   long tz = 0;
   const bool hasEnabled = jsonGetBool(body, "enabled", enabled);
@@ -780,6 +800,10 @@ void handleHooksGet() {
 
 void handleHooksPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlAdd(url)) {
     sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
@@ -790,6 +814,10 @@ void handleHooksPost() {
 
 void handleHooksDelete() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlRemove(url)) {
     sendJsonError(404, "unknown url");
@@ -800,6 +828,10 @@ void handleHooksDelete() {
 
 void handleHookTestPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String url;
   if (!jsonGetString(body, "url", url) || !webHookTest(url)) {
     sendJsonError(400, "invalid url (http:// or https://, max 120 chars)");
@@ -835,6 +867,10 @@ void handleMqttGet() {
 
 void handleMqttPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   bool enabled;
   if (!jsonGetBool(body, "enabled", enabled)) {
     sendJsonError(400, "missing enabled");
@@ -854,6 +890,10 @@ void handleRemotesGet() {
 
 void handleRemotePatch(const String &id) {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "name", name) || name.length() == 0 ||
       name.length() > 20 || !remoteRename(id, name.c_str())) {
@@ -873,6 +913,10 @@ void handleRemoteDelete(const String &id) {
 
 void handleRemoteBindPost(const String &id) {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String light;
   if (!jsonGetString(body, "light", light)) {
     sendJsonError(400, "missing light");
@@ -892,6 +936,10 @@ void handleRemoteBindPost(const String &id) {
 
 void handleRemoteActionsPost() {
   const String body = server.arg("plain");
+  if (body.length() > 2048) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String applied;
   if (!remoteSetActions(body, applied)) {
     sendJsonError(400, "invalid actions (see GET /api/remotes/actions)");
@@ -930,6 +978,10 @@ void handleLightTimerPost(const String &id) {
     return;
   }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds;
   if (!jsonGetInt(body, "seconds", seconds)) {
     sendJsonError(400, "missing seconds");
@@ -945,6 +997,10 @@ void handleLightTimerPost(const String &id) {
 
 void handleAllTimerPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long seconds;
   if (!jsonGetInt(body, "seconds", seconds)) {
     sendJsonError(400, "missing seconds");
@@ -1003,6 +1059,10 @@ void handleLightStepPost(const String &id) {
     return;
   }
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long delta;
   if (!jsonGetInt(body, "delta", delta)) {
     sendJsonError(400, "missing delta");
@@ -1022,6 +1082,10 @@ void handleLightStepPost(const String &id) {
 
 void handleAllStepPost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   long delta;
   if (!jsonGetInt(body, "delta", delta)) {
     sendJsonError(400, "missing delta");
@@ -1057,6 +1121,10 @@ void handleAllStepPost() {
 
 void handleHostnamePost() {
   const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
   String name;
   if (!jsonGetString(body, "hostname", name) || !webSetHostname(name)) {
     sendJsonError(400, "invalid hostname (a-z, 0-9, '-', 1-31 chars)");
