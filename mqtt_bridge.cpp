@@ -89,7 +89,7 @@ void writeMqttString(uint8_t *out, size_t &pos, const char *text) {
 }
 
 bool sendBytes(const uint8_t *data, size_t len) {
-  return client.write(data, len) == len;
+  return (size_t)client.write(data, len) == len;
 }
 
 String topicFor(const char *suffix) {
@@ -353,7 +353,7 @@ void dispatchPacket(uint8_t fixedHeader, const uint8_t *data, size_t len) {
   if (type == PKT_PUBLISH) {
     if (len < 2) return;
     const uint16_t topicLen = ((uint16_t)data[0] << 8) | data[1];
-    if (2 + topicLen > len) return;
+    if ((size_t)(2 + topicLen) > len) return;
     const uint8_t qos = (fixedHeader >> 1) & 0x03;
     const size_t payloadAt = 2 + topicLen + (qos > 0 ? 2 : 0);
     if (payloadAt > len) return;
@@ -369,35 +369,51 @@ void dispatchPacket(uint8_t fixedHeader, const uint8_t *data, size_t len) {
 
 
 
+struct ParsedPayload {
+  String stateStr;
+  bool hasState;
+  long brightness;
+  bool hasBrightness;
+  long mireds;
+  bool hasTemp;
+  uint8_t r, g, bl;
+  bool hasRgb;
+};
+
+ParsedPayload parsePayload(const String &payload) {
+  ParsedPayload p;
+  p.hasState = jsonGetString(payload, "state", p.stateStr);
+  p.brightness = 0;
+  p.mireds = 0;
+  p.hasBrightness = jsonGetInt(payload, "brightness", p.brightness);
+  p.hasTemp = jsonGetInt(payload, "color_temp", p.mireds);
+  p.hasRgb = parseRgbPayload(payload, p.r, p.g, p.bl);
+  return p;
+}
+
 uint8_t levelToPct(uint16_t level) {
   return (uint8_t)(((uint32_t)level * 100 + 127) / 255);
 }
 
 void applyPerBulb(Bulb *b, const String &payload) {
-  String stateStr;
-  const bool hasState = jsonGetString(payload, "state", stateStr);
-  long brightness = 0, mireds = 0;
-  const bool hasBrightness = jsonGetInt(payload, "brightness", brightness);
-  const bool hasTemp = jsonGetInt(payload, "color_temp", mireds);
-  uint8_t r, g, bl;
-  const bool hasRgb = parseRgbPayload(payload, r, g, bl);
+  ParsedPayload p = parsePayload(payload);
 
-  if (hasState && stateStr.equalsIgnoreCase("OFF")) {
+  if (p.hasState && p.stateStr.equalsIgnoreCase("OFF")) {
     bulbSendOff(b);
     return;
   }
-  if (hasBrightness && brightness > 0) {
-    bulbSendBrightness(b, levelToPct((uint16_t)brightness), DEFAULT_TRANSITION_DS);
+  if (p.hasBrightness && p.brightness > 0) {
+    bulbSendBrightness(b, levelToPct((uint16_t)p.brightness), DEFAULT_TRANSITION_DS);
   }
-  if (hasTemp && mireds > 0) {
-    bulbSendKelvin(b, (int)constrain(1000000L / mireds, MIN_KELVIN, MAX_KELVIN),
+  if (p.hasTemp && p.mireds > 0) {
+    bulbSendKelvin(b, (int)constrain(1000000L / p.mireds, MIN_KELVIN, MAX_KELVIN),
                    DEFAULT_TRANSITION_DS);
   }
-  if (hasRgb) {
-    bulbSendRgb(b, r, g, bl, DEFAULT_TRANSITION_DS);
+  if (p.hasRgb) {
+    bulbSendRgb(b, p.r, p.g, p.bl, DEFAULT_TRANSITION_DS);
   }
-  if (!hasBrightness && !hasTemp && !hasRgb) {
-    if (hasState && stateStr.equalsIgnoreCase("TOGGLE")) {
+  if (!p.hasBrightness && !p.hasTemp && !p.hasRgb) {
+    if (p.hasState && p.stateStr.equalsIgnoreCase("TOGGLE")) {
       bulbSendToggle(b);
     } else {
       bulbSendOn(b);
@@ -406,27 +422,21 @@ void applyPerBulb(Bulb *b, const String &payload) {
 }
 
 void applyToAll(const String &payload) {
-  String stateStr;
-  const bool hasState = jsonGetString(payload, "state", stateStr);
-  long brightness = 0, mireds = 0;
-  const bool hasBrightness = jsonGetInt(payload, "brightness", brightness);
-  const bool hasTemp = jsonGetInt(payload, "color_temp", mireds);
-  uint8_t r, g, bl;
-  const bool hasRgb = parseRgbPayload(payload, r, g, bl);
+  ParsedPayload p = parsePayload(payload);
 
-  if (hasState && stateStr.equalsIgnoreCase("OFF")) {
+  if (p.hasState && p.stateStr.equalsIgnoreCase("OFF")) {
     bulbSendAllOff();
     return;
   }
-  if (hasBrightness && brightness > 0) {
-    bulbSendAllBrightness(levelToPct((uint16_t)brightness), DEFAULT_TRANSITION_DS);
+  if (p.hasBrightness && p.brightness > 0) {
+    bulbSendAllBrightness(levelToPct((uint16_t)p.brightness), DEFAULT_TRANSITION_DS);
   }
-  if (hasTemp && mireds > 0) {
-    bulbSendAllKelvin((int)constrain(1000000L / mireds, MIN_KELVIN, MAX_KELVIN),
+  if (p.hasTemp && p.mireds > 0) {
+    bulbSendAllKelvin((int)constrain(1000000L / p.mireds, MIN_KELVIN, MAX_KELVIN),
                       DEFAULT_TRANSITION_DS);
   }
-  if (hasRgb) bulbSendAllRgb(r, g, bl, DEFAULT_TRANSITION_DS);
-  if (!hasBrightness && !hasTemp && !hasRgb && hasState) bulbSendAllOn();
+  if (p.hasRgb) bulbSendAllRgb(p.r, p.g, p.bl, DEFAULT_TRANSITION_DS);
+  if (!p.hasBrightness && !p.hasTemp && !p.hasRgb && p.hasState) bulbSendAllOn();
 }
 
 }  // namespace
