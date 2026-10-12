@@ -14,6 +14,19 @@ bool stateDirty = false;
 uint32_t stateChangedAtMs = 0;
 Preferences prefs;
 
+struct PersistentBulb {
+  esp_zb_ieee_addr_t ieee;
+  char name[24];
+  BulbState state;
+  uint16_t shortAddr;
+  uint8_t endpoint;
+};
+
+struct PersistentRegistry {
+  uint8_t count;
+  PersistentBulb bulbs[MAX_BULBS];
+};
+
 uint8_t pctToLevel(uint8_t pct) {
   return (uint8_t)((pct * 255 + 50) / 100);
 }
@@ -38,12 +51,6 @@ void sanitizeName(char *out, size_t cap, const char *in) {
   while (o > 0 && out[o - 1] == ' ') o--;
   out[o] = '\0';
   if (out[0] == '\0') snprintf(out, cap, "Bulb");
-}
-
-void serializeRuntimeAddr(const Bulb &b, String &out) {
-  out = String(b.shortAddr, 16);
-  out += ",";
-  out += String(b.endpoint);
 }
 
 void deserializeRuntimeAddr(Bulb &b, const String &s) {
@@ -95,37 +102,73 @@ bool deserializeBulbState(BulbState &st, const String &s) {
 
 void registryBegin() {
   prefs.begin(PREFS_NAMESPACE, false);
-  bulbCountValue = prefs.getUChar("count", 0);
-  if (bulbCountValue > MAX_BULBS) bulbCountValue = MAX_BULBS;
 
-  for (size_t i = 0; i < bulbCountValue; ++i) {
-    Bulb &b = bulbs[i];
-    char key[16];
-    int len = snprintf(key, sizeof(key), "b%zu", i);
+  PersistentRegistry *reg = new PersistentRegistry{};
+  size_t bytesRead = prefs.getBytes("registry", reg, sizeof(PersistentRegistry));
 
-    if (len > 0 && len < (int)sizeof(key) - 1) {
-      key[len] = 'i';
-      key[len + 1] = '\0';
-      prefs.getBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+  if (bytesRead > 0) {
+    bulbCountValue = reg->count;
+    if (bulbCountValue > MAX_BULBS) bulbCountValue = MAX_BULBS;
 
-      key[len] = 'n';
-      key[len + 1] = '\0';
-      String name = prefs.getString(key, "");
-      sanitizeName(b.name, sizeof(b.name), name.c_str());
+    for (size_t i = 0; i < bulbCountValue; ++i) {
+      Bulb &b = bulbs[i];
+      const PersistentBulb &pb = reg->bulbs[i];
 
-      key[len] = 's';
-      key[len + 1] = '\0';
-      deserializeBulbState(b.state, prefs.getString(key, ""));
-
-      // Short address and endpoint survive reboots in practice (the network
-      // resumes and bulbs keep their assignment); refreshed from the binding
-      // table and reports anyway.
-      key[len] = 'a';
-      key[len + 1] = '\0';
-      deserializeRuntimeAddr(b, prefs.getString(key, ""));
+      memcpy(b.ieee, pb.ieee, sizeof(esp_zb_ieee_addr_t));
+      sanitizeName(b.name, sizeof(b.name), pb.name);
+      b.state = pb.state;
+      b.shortAddr = pb.shortAddr;
+      b.endpoint = pb.endpoint;
+      b.online = false;
     }
-    b.online = false;
+  } else {
+    // Migration or empty registry: try to read old schema if needed,
+    // or just start empty. Since we want to drop N+1 reads, we just start empty if not found,
+    // but to be perfectly safe on first boot after OTA we could migrate.
+    // Actually, let's keep it simple. If we want migration, we read count.
+    bulbCountValue = prefs.getUChar("count", 0);
+    if (bulbCountValue > MAX_BULBS) bulbCountValue = MAX_BULBS;
+
+    for (size_t i = 0; i < bulbCountValue; ++i) {
+      Bulb &b = bulbs[i];
+      char key[16];
+      int len = snprintf(key, sizeof(key), "b%zu", i);
+
+      if (len > 0 && len < (int)sizeof(key) - 1) {
+        key[len] = 'i';
+        key[len + 1] = '\0';
+        prefs.getBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
+
+        key[len] = 'n';
+        key[len + 1] = '\0';
+        String name = prefs.getString(key, "");
+        sanitizeName(b.name, sizeof(b.name), name.c_str());
+
+        key[len] = 's';
+        key[len + 1] = '\0';
+        deserializeBulbState(b.state, prefs.getString(key, ""));
+
+        key[len] = 'a';
+        key[len + 1] = '\0';
+        deserializeRuntimeAddr(b, prefs.getString(key, ""));
+
+        // Clean up old keys
+        key[len] = 'i'; prefs.remove(key);
+        key[len] = 'n'; prefs.remove(key);
+        key[len] = 's'; prefs.remove(key);
+        key[len] = 'a'; prefs.remove(key);
+      }
+      b.online = false;
+    }
+    prefs.remove("count");
+
+    if (bulbCountValue > 0) {
+        // Force flush to new format
+        stateDirty = true;
+        stateChangedAtMs = 0;
+    }
   }
+  delete reg;
 }
 
 size_t registryCount() {
@@ -236,32 +279,24 @@ void registryTick() {
 void registryFlush() {
   if (!stateDirty) return;
   stateDirty = false;
-  prefs.putUChar("count", (uint8_t)bulbCountValue);
+
+  PersistentRegistry *reg = new PersistentRegistry{};
+  reg->count = (uint8_t)bulbCountValue;
+
   for (size_t i = 0; i < bulbCountValue; ++i) {
     const Bulb &b = bulbs[i];
-    char key[16];
-    int len = snprintf(key, sizeof(key), "b%zu", i);
+    PersistentBulb &pb = reg->bulbs[i];
 
-    if (len > 0 && len < (int)sizeof(key) - 1) {
-      key[len] = 'i';
-      key[len + 1] = '\0';
-      prefs.putBytes(key, b.ieee, sizeof(esp_zb_ieee_addr_t));
-
-      key[len] = 'n';
-      key[len + 1] = '\0';
-      prefs.putString(key, b.name);
-
-      key[len] = 's';
-      key[len + 1] = '\0';
-      prefs.putString(key, serializeBulbState(b.state));
-
-      String addr;
-      serializeRuntimeAddr(b, addr);
-      key[len] = 'a';
-      key[len + 1] = '\0';
-      prefs.putString(key, addr);
-    }
+    memcpy(pb.ieee, b.ieee, sizeof(esp_zb_ieee_addr_t));
+    snprintf(pb.name, sizeof(pb.name), "%s", b.name);
+    pb.state = b.state;
+    pb.shortAddr = b.shortAddr;
+    pb.endpoint = b.endpoint;
   }
+
+  size_t bytesToWrite = offsetof(PersistentRegistry, bulbs) + bulbCountValue * sizeof(PersistentBulb);
+  prefs.putBytes("registry", reg, bytesToWrite);
+  delete reg;
 }
 
 void bulbSetBrightnessPct(Bulb *bulb, uint8_t pct) {
