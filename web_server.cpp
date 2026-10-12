@@ -779,6 +779,10 @@ void handleHooksGet() {
 }
 
 void handleHooksPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlAdd(url)) {
@@ -789,6 +793,10 @@ void handleHooksPost() {
 }
 
 void handleHooksDelete() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   String url;
   if (!jsonGetString(body, "url", url) || !webHookUrlRemove(url)) {
@@ -799,6 +807,10 @@ void handleHooksDelete() {
 }
 
 void handleHookTestPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   String url;
   if (!jsonGetString(body, "url", url) || !webHookTest(url)) {
@@ -834,6 +846,10 @@ void handleMqttGet() {
 }
 
 void handleMqttPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   bool enabled;
   if (!jsonGetBool(body, "enabled", enabled)) {
@@ -903,10 +919,18 @@ void handleRemoteActionsPost() {
 // --- Backup / restore ------------------------------------------------------------
 
 void handleBackupGet() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   sendJson(200, configBackupJson());
 }
 
 void handleRestorePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 12288) {
     sendJsonError(400, "body too large");
@@ -1056,6 +1080,10 @@ void handleAllStepPost() {
 }
 
 void handleHostnamePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   String name;
   if (!jsonGetString(body, "hostname", name) || !webSetHostname(name)) {
