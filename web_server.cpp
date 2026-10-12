@@ -165,6 +165,80 @@ void handleLightGet(const String &id) {
   sendJson(200, lightJson(b, server.hasArg("debug")));
 }
 
+bool parsePatchName(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String name;
+  if (jsonGetString(body, "name", name)) {
+    if (name.length() > 0 && name.length() <= 20) {
+      registryRename(b, name.c_str());
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid name";
+      return false;
+    }
+  }
+  return true;
+}
+
+void parsePatchPower(Bulb *b, const String &body, bool &changed) {
+  bool on;
+  if (jsonGetBool(body, "on", on)) {
+    on ? bulbSendOn(b) : bulbSendOff(b);
+    changed = true;
+  }
+}
+
+void parsePatchBrightness(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+  long brightness;
+  if (jsonGetInt(body, "brightness", brightness)) {
+    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
+    changed = true;
+  }
+}
+
+void parsePatchKelvin(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+  long kelvin;
+  if (jsonGetInt(body, "kelvin", kelvin)) {
+    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
+    changed = true;
+  }
+}
+
+bool parsePatchRgbHex(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String rgbHex;
+  if (jsonGetString(body, "rgb_hex", rgbHex)) {
+    unsigned r = 0, g = 0, bl = 0;
+    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
+    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
+      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid rgb_hex";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool parsePatchMode(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+  String mode;
+  if (jsonGetString(body, "mode", mode)) {
+    if (mode == "white") {
+      bulbSendKelvin(b, b->state.kelvin, tds);
+      changed = true;
+    } else if (mode == "rgb") {
+      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
+      changed = true;
+    } else {
+      outHttpCode = 400;
+      outErrorMsg = "invalid mode";
+      return false;
+    }
+  }
+  return true;
+}
+
 bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg) {
   // Transition override: 0 = cambio colore istantaneo (usato dal flash polizia).
   long transition = (long)DEFAULT_TRANSITION_DS;
@@ -182,64 +256,13 @@ bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outE
   }
 
   bool changed = false;
-  String name;
-  if (jsonGetString(body, "name", name)) {
-    if (name.length() > 0 && name.length() <= 20) {
-      registryRename(b, name.c_str());
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid name";
-      return false;
-    }
-  }
 
-  bool on;
-  if (jsonGetBool(body, "on", on)) {
-    on ? bulbSendOn(b) : bulbSendOff(b);
-    changed = true;
-  }
-
-  long brightness;
-  if (jsonGetInt(body, "brightness", brightness)) {
-    bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
-    changed = true;
-  }
-
-  long kelvin;
-  if (jsonGetInt(body, "kelvin", kelvin)) {
-    bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
-    changed = true;
-  }
-
-  String rgbHex;
-  if (jsonGetString(body, "rgb_hex", rgbHex)) {
-    unsigned r = 0, g = 0, bl = 0;
-    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
-    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
-      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid rgb_hex";
-      return false;
-    }
-  }
-
-  String mode;
-  if (jsonGetString(body, "mode", mode)) {
-    if (mode == "white") {
-      bulbSendKelvin(b, b->state.kelvin, tds);
-      changed = true;
-    } else if (mode == "rgb") {
-      bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
-      changed = true;
-    } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid mode";
-      return false;
-    }
-  }
+  if (!parsePatchName(b, body, outHttpCode, outErrorMsg, changed)) return false;
+  parsePatchPower(b, body, changed);
+  parsePatchBrightness(b, body, tds, changed);
+  parsePatchKelvin(b, body, tds, changed);
+  if (!parsePatchRgbHex(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
+  if (!parsePatchMode(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
 
   if (!changed) {
     outHttpCode = 400;
