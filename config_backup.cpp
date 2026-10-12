@@ -30,6 +30,36 @@ size_t skipJsonString(const String &body, size_t pos) {
   return pos;
 }
 
+// Skips whitespaces and commas. Returns the new position.
+size_t skipWhitespaceAndComma(const String &body, size_t pos) {
+  while (pos < body.length() && (isspace((unsigned char)body[pos]) || body[pos] == ',')) {
+    ++pos;
+  }
+  return pos;
+}
+
+// Skips a JSON object {...} starting at body[pos] ('{'); returns the position
+// after the closing brace.
+size_t skipJsonObject(const String &body, size_t pos) {
+  int depth = 0;
+  while (pos < body.length()) {
+    const char c = body[pos];
+    if (c == '"') {
+      pos = skipJsonString(body, pos);
+      continue;
+    }
+    if (c == '{') ++depth;
+    if (c == '}') {
+      --depth;
+      if (depth == 0) {
+        return pos + 1;
+      }
+    }
+    ++pos;
+  }
+  return pos;
+}
+
 // Extracts the top-level {...} objects from the "key":[ ... ] array.
 size_t extractObjectArray(const String &body, const char *key, String *out,
                           size_t cap) {
@@ -38,28 +68,10 @@ size_t extractObjectArray(const String &body, const char *key, String *out,
   size_t pos = at + 1;
   size_t n = 0;
   while (pos < body.length() && n < cap) {
-    while (pos < body.length() && (isspace((unsigned char)body[pos]) || body[pos] == ',')) {
-      ++pos;
-    }
+    pos = skipWhitespaceAndComma(body, pos);
     if (pos >= body.length() || body[pos] != '{') break;
     const size_t start = pos;
-    int depth = 0;
-    while (pos < body.length()) {
-      const char c = body[pos];
-      if (c == '"') {
-        pos = skipJsonString(body, pos);
-        continue;
-      }
-      if (c == '{') ++depth;
-      if (c == '}') {
-        --depth;
-        if (depth == 0) {
-          ++pos;
-          break;
-        }
-      }
-      ++pos;
-    }
+    pos = skipJsonObject(body, pos);
     out[n++] = body.substring(start, pos);
   }
   return n;
@@ -73,9 +85,7 @@ size_t extractStringArray(const String &body, const char *key, String *out,
   size_t pos = at + 1;
   size_t n = 0;
   while (pos < body.length() && n < cap) {
-    while (pos < body.length() && (isspace((unsigned char)body[pos]) || body[pos] == ',')) {
-      ++pos;
-    }
+    pos = skipWhitespaceAndComma(body, pos);
     if (pos >= body.length() || body[pos] != '"') break;
     const size_t start = pos;
     pos = skipJsonString(body, pos);
@@ -89,24 +99,7 @@ String extractObjectValue(const String &body, const char *key) {
   const size_t at = findJsonKey(body, key);
   if (at == (size_t)-1 || at >= body.length() || body[at] != '{') return String();
   const size_t start = at;
-  int depth = 0;
-  size_t pos = at;
-  while (pos < body.length()) {
-    const char c = body[pos];
-    if (c == '"') {
-      pos = skipJsonString(body, pos);
-      continue;
-    }
-    if (c == '{') ++depth;
-    if (c == '}') {
-      --depth;
-      if (depth == 0) {
-        ++pos;
-        break;
-      }
-    }
-    ++pos;
-  }
+  size_t pos = skipJsonObject(body, at);
   return body.substring(start, pos);
 }
 
