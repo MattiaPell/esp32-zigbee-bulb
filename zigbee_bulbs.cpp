@@ -117,6 +117,78 @@ void verifyEnqueue(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr, uint8_t en
 void verifyJobDone(size_t index) {
   verifyQueue[index].used = false;
 }
+
+static void requestNwkAddr(VerifyJob &job) {
+  job.waitingShort = true;
+  esp_zb_zdo_nwk_addr_req_param_t req = {};
+  req.dst_nwk_addr = 0xFFFC;
+  memcpy(req.ieee_addr_of_interest, job.ieee, sizeof(esp_zb_ieee_addr_t));
+  req.request_type = 0;
+  req.start_index = 0;
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
+                                   esp_zb_zdo_nwk_addr_rsp_t *resp, void *user_ctx) {
+    if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
+    VerifyJob *w = static_cast<VerifyJob*>(user_ctx);
+    if (w->used && w->waitingShort &&
+        memcmp(w->ieee, resp->ieee_addr, sizeof(esp_zb_ieee_addr_t)) == 0) {
+      w->shortAddr = resp->nwk_addr;
+      w->waitingShort = false;
+    }
+  }, &job);
+  esp_zb_lock_release();
+}
+
+static void requestSimpleDesc(VerifyJob &job) {
+  esp_zb_zdo_simple_desc_req_param_t req = {};
+  req.addr_of_interest = job.shortAddr;
+  req.endpoint = job.endpoint;
+  if (++job.attempts > VERIFY_MAX_ATTEMPTS) {
+    // Unreachable (likely a sleeping battery device): give up for now,
+    // the next binding sync will re-queue it.
+    job.used = false;
+    debugLogPrintln("Zigbee: verify gave up (no descriptor response)");
+    return;
+  }
+  if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
+  esp_zb_zdo_simple_desc_req(&req, [](esp_zb_zdp_status_t status,
+                                      esp_zb_af_simple_desc_1_1_t *desc, void *user_ctx) {
+    VerifyJob *job_ptr = static_cast<VerifyJob*>(user_ctx);
+    if (!job_ptr->used || job_ptr->waitingShort) return;
+
+    bool isLight = false;
+    bool isRemote = false;
+    if (status == ESP_ZB_ZDP_STATUS_SUCCESS && desc != nullptr) {
+      isLight = hasCluster(desc, 0, desc->app_input_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
+      if (!isLight) {
+        // Steering devices expose on/off only as OUTPUT (client) clusters.
+        isRemote = hasCluster(desc, desc->app_input_cluster_count, desc->app_output_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
+      }
+      if (!isLight && !isRemote) {
+        debugLogPrintf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
+                      job_ptr->shortAddr, job_ptr->endpoint, desc->app_device_id);
+      }
+    }
+    job_ptr->used = false;
+    if (isLight) {
+      Bulb *added = registryAdd(job_ptr->ieee);
+      if (added != nullptr) {
+        if (job_ptr->shortAddr != 0xFFFF) added->shortAddr = job_ptr->shortAddr;
+        if (job_ptr->endpoint != 0) added->endpoint = job_ptr->endpoint;
+        debugLogPrintln("Zigbee: verified bound device is a light: registered.");
+        webHookEvent("bulb_joined", bulbIeeeHex(added).c_str(), added->name);
+      }
+    } else if (isRemote) {
+      remoteEnroll(job_ptr->ieee, job_ptr->shortAddr, job_ptr->endpoint);
+    } else {
+      if (verifyBlacklistCount < VERIFY_BLACKLIST) {
+        memcpy(verifyBlacklist[verifyBlacklistCount++], job_ptr->ieee, sizeof(esp_zb_ieee_addr_t));
+      }
+    }
+  }, &job);
+  esp_zb_lock_release();
+}
+
 void verifyTick(uint32_t now) {
   if (now - lastVerifyMs < 1500) return;
   lastVerifyMs = now;
@@ -133,84 +205,11 @@ void verifyTick(uint32_t now) {
         }
         return;
       }
-      job.waitingShort = true;
-      esp_zb_zdo_nwk_addr_req_param_t req = {};
-      req.dst_nwk_addr = 0xFFFC;
-      memcpy(req.ieee_addr_of_interest, job.ieee, sizeof(esp_zb_ieee_addr_t));
-      req.request_type = 0;
-      req.start_index = 0;
-      if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
-      esp_zb_zdo_nwk_addr_req(&req, [](esp_zb_zdp_status_t status,
-                                       esp_zb_zdo_nwk_addr_rsp_t *resp, void *) {
-        if (status != ESP_ZB_ZDP_STATUS_SUCCESS || resp == nullptr) return;
-        for (size_t j = 0; j < VERIFY_QUEUE; ++j) {
-          VerifyJob &w = verifyQueue[j];
-          if (w.used && w.waitingShort &&
-              memcmp(w.ieee, resp->ieee_addr, sizeof(esp_zb_ieee_addr_t)) == 0) {
-            w.shortAddr = resp->nwk_addr;
-            w.waitingShort = false;
-          }
-        }
-      }, nullptr);
-      esp_zb_lock_release();
+      requestNwkAddr(job);
       return;
     }
 
-    esp_zb_zdo_simple_desc_req_param_t req = {};
-    req.addr_of_interest = job.shortAddr;
-    req.endpoint = job.endpoint;
-    if (++job.attempts > VERIFY_MAX_ATTEMPTS) {
-      // Unreachable (likely a sleeping battery device): give up for now,
-      // the next binding sync will re-queue it.
-      job.used = false;
-      debugLogPrintln("Zigbee: verify gave up (no descriptor response)");
-      return;
-    }
-    if (!esp_zb_lock_acquire(portMAX_DELAY)) return;
-    esp_zb_zdo_simple_desc_req(&req, [](esp_zb_zdp_status_t status,
-                                        esp_zb_af_simple_desc_1_1_t *desc, void *) {
-      // Find the job that was waiting for this answer (single outstanding
-      // request at any time by construction).
-      VerifyJob *job = nullptr;
-      for (size_t j = 0; j < VERIFY_QUEUE; ++j) {
-        if (verifyQueue[j].used && !verifyQueue[j].waitingShort) {
-          job = &verifyQueue[j];
-          break;
-        }
-      }
-      if (job == nullptr) return;
-
-      bool isLight = false;
-      bool isRemote = false;
-      if (status == ESP_ZB_ZDP_STATUS_SUCCESS && desc != nullptr) {
-        isLight = hasCluster(desc, 0, desc->app_input_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
-        if (!isLight) {
-          // Steering devices expose on/off only as OUTPUT (client) clusters.
-          isRemote = hasCluster(desc, desc->app_input_cluster_count, desc->app_output_cluster_count, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF);
-        }
-        if (!isLight && !isRemote) {
-          debugLogPrintf("Zigbee: bound device 0x%04x ep %u is not a light (device_id 0x%04x, no on/off server)\n",
-                        job->shortAddr, job->endpoint, desc->app_device_id);
-        }
-      }
-      job->used = false;
-      if (isLight) {
-        Bulb *added = registryAdd(job->ieee);
-        if (added != nullptr) {
-          if (job->shortAddr != 0xFFFF) added->shortAddr = job->shortAddr;
-          if (job->endpoint != 0) added->endpoint = job->endpoint;
-          debugLogPrintln("Zigbee: verified bound device is a light: registered.");
-          webHookEvent("bulb_joined", bulbIeeeHex(added).c_str(), added->name);
-        }
-      } else if (isRemote) {
-        remoteEnroll(job->ieee, job->shortAddr, job->endpoint);
-      } else {
-        if (verifyBlacklistCount < VERIFY_BLACKLIST) {
-          memcpy(verifyBlacklist[verifyBlacklistCount++], job->ieee, sizeof(esp_zb_ieee_addr_t));
-        }
-      }
-    }, nullptr);
-    esp_zb_lock_release();
+    requestSimpleDesc(job);
     return;
   }
 }
