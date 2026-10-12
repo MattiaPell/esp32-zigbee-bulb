@@ -823,6 +823,10 @@ void handleHooksGet() {
 }
 
 void handleHooksPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 512) {
     sendJsonError(400, "body too large");
@@ -837,6 +841,10 @@ void handleHooksPost() {
 }
 
 void handleHooksDelete() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 512) {
     sendJsonError(400, "body too large");
@@ -851,6 +859,10 @@ void handleHooksDelete() {
 }
 
 void handleHookTestPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 512) {
     sendJsonError(400, "body too large");
@@ -890,6 +902,10 @@ void handleMqttGet() {
 }
 
 void handleMqttPost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 512) {
     sendJsonError(400, "body too large");
@@ -975,10 +991,18 @@ void handleRemoteActionsPost() {
 // --- Backup / restore ------------------------------------------------------------
 
 void handleBackupGet() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   sendJson(200, configBackupJson());
 }
 
 void handleRestorePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 12288) {
     sendJsonError(400, "body too large");
@@ -1144,6 +1168,10 @@ void handleAllStepPost() {
 }
 
 void handleHostnamePost() {
+  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
   const String body = server.arg("plain");
   if (body.length() > 512) {
     sendJsonError(400, "body too large");

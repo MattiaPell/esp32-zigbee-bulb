@@ -234,7 +234,10 @@ function reorderCards(fromId,toId){
 }
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
-async function api(path,opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
+async function api(path,opts){
+ opts=opts||{};opts.headers=opts.headers||{};
+ const otaEl=$('otaTok');const tok=otaEl?otaEl.value.trim():'';if(tok)opts.headers['X-OTA-TOKEN']=tok;
+ const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
  if(!r.ok){toast(j.error||('Errore '+r.status));throw new Error(j.error||r.status)}return j}
 
 async function load(){
