@@ -21,6 +21,7 @@ int main() {
   runSceneTests();
   runConfigBackupTests();
   runRemoteControlsTests();
+  runEffectsTests();
 
   const int failed = check::failures();
   const int total = check::checks();
