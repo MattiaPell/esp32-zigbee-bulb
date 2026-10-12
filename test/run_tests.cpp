@@ -9,6 +9,7 @@ int main() {
   runJsonLiteTests();
   runPresetTests();
   runAdaptiveTests();
+  runDebugLogTests();
   runBrightnessStepTests();
   runZigbeeUtilsTests();
   runLightTimerTests();
