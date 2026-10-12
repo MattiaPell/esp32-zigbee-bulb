@@ -143,18 +143,32 @@ Remote *freeSlot() {
   return nullptr;
 }
 
+struct RemoteData {
+  bool used;
+  esp_zb_ieee_addr_t ieee;
+  char name[24];
+} __attribute__((packed));
+
+struct RemoteBlob {
+  RemoteData data[MAX_REMOTES];
+} __attribute__((packed));
+
+void persistAllRemotes() {
+  RemoteBlob blob = {};
+  for (size_t i = 0; i < MAX_REMOTES; ++i) {
+    blob.data[i].used = remotes[i].used;
+    memcpy(blob.data[i].ieee, remotes[i].ieee, sizeof(esp_zb_ieee_addr_t));
+    strlcpy(blob.data[i].name, remotes[i].name, sizeof(blob.data[i].name));
+  }
+  prefs.putBytes("remotes", &blob, sizeof(blob));
+}
+
 void persistRemote(Remote &r, int slot) {
-  String key = "r" + String(slot);
-  prefs.putBytes((key + "i").c_str(), r.ieee, sizeof(esp_zb_ieee_addr_t));
-  prefs.putString((key + "n").c_str(), r.name);
+  persistAllRemotes();
 }
 
 void persistCount() {
-  uint8_t n = 0;
-  for (size_t i = 0; i < MAX_REMOTES; ++i) {
-    if (remotes[i].used) ++n;
-  }
-  prefs.putUChar("count", n);
+  persistAllRemotes();
 }
 
 void persistMap() {
@@ -488,19 +502,48 @@ void remoteAttach(ZigbeeEP &ep) {
 
 void remotesBegin() {
   prefs.begin(PREFS_NS, false);
-  const uint8_t count = prefs.getUChar("count", 0);
-  for (uint8_t i = 0; i < MAX_REMOTES && i < count; ++i) {
-    String key = "r" + String(i);
-    Remote &r = remotes[i];
-    prefs.getBytes((key + "i").c_str(), r.ieee, sizeof(esp_zb_ieee_addr_t));
-    const bool hasIeee = r.ieee[0] != 0 || r.ieee[7] != 0;
-    if (!hasIeee) continue;
-    String name = prefs.getString((key + "n").c_str(), "");
-    if (name.length() == 0) name = "Remote " + String(i + 1);
-    name.toCharArray(r.name, sizeof(r.name));
-    r.used = true;
-    r.shortAddr = 0xFFFF;  // Refreshed on the first press.
+
+  RemoteBlob blob;
+  size_t readSize = prefs.getBytes("remotes", &blob, sizeof(blob));
+  if (readSize > 0 && (readSize % sizeof(RemoteData)) == 0) {
+    size_t storedCount = readSize / sizeof(RemoteData);
+    size_t loopCount = storedCount < MAX_REMOTES ? storedCount : MAX_REMOTES;
+    for (size_t i = 0; i < loopCount; ++i) {
+      if (blob.data[i].used) {
+        Remote &r = remotes[i];
+        r.used = true;
+        memcpy(r.ieee, blob.data[i].ieee, sizeof(esp_zb_ieee_addr_t));
+        strlcpy(r.name, blob.data[i].name, sizeof(r.name));
+        r.shortAddr = 0xFFFF;
+      }
+    }
+  } else {
+    bool migrated = false;
+    const uint8_t count = prefs.getUChar("count", 0);
+    for (uint8_t i = 0; i < MAX_REMOTES && i < count; ++i) {
+      String key = "r" + String(i);
+      Remote &r = remotes[i];
+      prefs.getBytes((key + "i").c_str(), r.ieee, sizeof(esp_zb_ieee_addr_t));
+      const bool hasIeee = r.ieee[0] != 0 || r.ieee[7] != 0;
+      if (!hasIeee) continue;
+      String name = prefs.getString((key + "n").c_str(), "");
+      if (name.length() == 0) name = "Remote " + String(i + 1);
+      name.toCharArray(r.name, sizeof(r.name));
+      r.used = true;
+      r.shortAddr = 0xFFFF;  // Refreshed on the first press.
+      migrated = true;
+    }
+    if (migrated) {
+      persistAllRemotes();
+      prefs.remove("count");
+      for (size_t i = 0; i < MAX_REMOTES; ++i) {
+        String key = "r" + String(i);
+        prefs.remove((key + "i").c_str());
+        prefs.remove((key + "n").c_str());
+      }
+    }
   }
+
   String csv = prefs.getString("m", "");
   if (csv.length() > 0) {
     int start = 0;
@@ -513,7 +556,11 @@ void remotesBegin() {
       if (value >= 0 && value < ACT_COUNT) actionMap[ev] = (uint8_t)value;
     }
   }
-  debugLogPrintf("Remotes: %u registered\n", (unsigned)count);
+  unsigned registered = 0;
+  for (size_t i = 0; i < MAX_REMOTES; ++i) {
+    if (remotes[i].used) ++registered;
+  }
+  debugLogPrintf("Remotes: %u registered\n", registered);
 }
 
 void remotesTick() {
@@ -665,9 +712,6 @@ bool remoteRemove(const String &id) {
   for (size_t i = 0; i < MAX_REMOTES; ++i) {
     if (!remotes[i].used) continue;
     if (!ieeeHexOf(remotes[i].ieee).equalsIgnoreCase(id)) continue;
-    String key = "r" + String(i);
-    prefs.remove((key + "i").c_str());
-    prefs.remove((key + "n").c_str());
     remotes[i] = Remote();
     persistCount();
     debugLogPrintf("Remote: forgot %s\n", id.c_str());
