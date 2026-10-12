@@ -89,7 +89,7 @@ void writeMqttString(uint8_t *out, size_t &pos, const char *text) {
 }
 
 bool sendBytes(const uint8_t *data, size_t len) {
-  return client.write(data, len) == len;
+  return (size_t)client.write(data, len) == len;
 }
 
 String topicFor(const char *suffix) {
@@ -353,7 +353,7 @@ void dispatchPacket(uint8_t fixedHeader, const uint8_t *data, size_t len) {
   if (type == PKT_PUBLISH) {
     if (len < 2) return;
     const uint16_t topicLen = ((uint16_t)data[0] << 8) | data[1];
-    if (2 + topicLen > len) return;
+    if (2 + (size_t)topicLen > len) return;
     const uint8_t qos = (fixedHeader >> 1) & 0x03;
     const size_t payloadAt = 2 + topicLen + (qos > 0 ? 2 : 0);
     if (payloadAt > len) return;

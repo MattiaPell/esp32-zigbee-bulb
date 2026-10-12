@@ -32,6 +32,13 @@ public:
         strings.clear();
     }
 
+    bool remove(const char* key) {
+        uchars.erase(key);
+        bytes.erase(key);
+        strings.erase(key);
+        return true;
+    }
+
     uint8_t getUChar(const char* key, uint8_t def) {
         auto it = uchars.find(key);
         return it != uchars.end() ? it->second : def;
@@ -41,16 +48,20 @@ public:
         uchars[key] = val;
     }
 
-    void getBytes(const char* key, void* out, size_t len) {
+    size_t getBytes(const char* key, void* out, size_t len) {
         auto it = bytes.find(key);
-        if (it != bytes.end() && it->second.size() == len) {
-            memcpy(out, it->second.data(), len);
+        if (it != bytes.end()) {
+            size_t copy_len = it->second.size() > len ? len : it->second.size();
+            memcpy(out, it->second.data(), copy_len);
+            return copy_len;
         }
+        return 0;
     }
 
-    void putBytes(const char* key, const void* in, size_t len) {
+    size_t putBytes(const char* key, const void* in, size_t len) {
         std::vector<uint8_t> v((const uint8_t*)in, (const uint8_t*)in + len);
         bytes[key] = v;
+        return len;
     }
 
     String getString(const char* key, const char* def) {
