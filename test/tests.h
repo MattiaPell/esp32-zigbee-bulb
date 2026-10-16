@@ -20,3 +20,4 @@ void runRemoteControlsTests();
 void runIdentifyTests();
 void runEffectsTests();
 void runStatusLedTests();
+void runSerialConsoleTests();

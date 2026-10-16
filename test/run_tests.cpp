@@ -24,6 +24,7 @@ int main() {
   runIdentifyTests();
   runEffectsTests();
   runStatusLedTests();
+  runSerialConsoleTests();
 
   const int failed = check::failures();
   const int total = check::checks();
