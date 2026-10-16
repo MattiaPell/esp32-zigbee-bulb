@@ -21,3 +21,4 @@ void runIdentifyTests();
 void runEffectsTests();
 void runStatusLedTests();
 void runSerialConsoleTests();
+void runOtaUpdateTests();

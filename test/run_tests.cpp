@@ -25,6 +25,7 @@ int main() {
   runEffectsTests();
   runStatusLedTests();
   runSerialConsoleTests();
+  runOtaUpdateTests();
 
   const int failed = check::failures();
   const int total = check::checks();
