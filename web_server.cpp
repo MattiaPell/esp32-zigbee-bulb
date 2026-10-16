@@ -1083,6 +1083,24 @@ void handleLightIdentifyPost(const String &id) {
   sendJson(200, "{\"ok\":true}");
 }
 
+bool parseStepDeltaAndTransition(const String &body, long &outDelta, uint16_t &outTds) {
+  long delta;
+  if (!jsonGetInt(body, "delta", delta)) {
+    sendJsonError(400, "missing delta");
+    return false;
+  }
+  if (delta < -100 || delta > 100) {
+    sendJsonError(400, "delta out of range (-100..100)");
+    return false;
+  }
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+
+  outDelta = delta;
+  outTds = (uint16_t)constrain(transition, 0, 6000);
+  return true;
+}
+
 // POST /api/lights/{id}/refresh: ask the bulb for its real state now.
 void handleLightRefreshPost(const String &id) {
   Bulb *b = bulbByApiId(id);
@@ -1115,17 +1133,8 @@ void handleLightStepPost(const String &id) {
     return;
   }
   long delta;
-  if (!jsonGetInt(body, "delta", delta)) {
-    sendJsonError(400, "missing delta");
-    return;
-  }
-  if (delta < -100 || delta > 100) {
-    sendJsonError(400, "delta out of range (-100..100)");
-    return;
-  }
-  long transition = (long)DEFAULT_TRANSITION_DS;
-  jsonGetInt(body, "transition", transition);
-  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+  uint16_t tds;
+  if (!parseStepDeltaAndTransition(body, delta, tds)) return;
   const int target = brightnessStepClamp(bulbBrightnessPct(b), (int)delta);
   bulbSendBrightness(b, (uint8_t)target, tds);
   sendJson(200, "{\"brightness\":" + String(target) + "}");
@@ -1138,17 +1147,8 @@ void handleAllStepPost() {
     return;
   }
   long delta;
-  if (!jsonGetInt(body, "delta", delta)) {
-    sendJsonError(400, "missing delta");
-    return;
-  }
-  if (delta < -100 || delta > 100) {
-    sendJsonError(400, "delta out of range (-100..100)");
-    return;
-  }
-  long transition = (long)DEFAULT_TRANSITION_DS;
-  jsonGetInt(body, "transition", transition);
-  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+  uint16_t tds;
+  if (!parseStepDeltaAndTransition(body, delta, tds)) return;
 
   // A group frame carries a single level: step the average of the reachable
   // bulbs, so "brighter/dimmer all" behaves sensibly with mixed states.
