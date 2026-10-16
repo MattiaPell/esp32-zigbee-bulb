@@ -60,38 +60,37 @@ size_t skipJsonObject(const String &body, size_t pos) {
   return pos;
 }
 
-// Extracts the top-level {...} objects from the "key":[ ... ] array.
-size_t extractObjectArray(const String &body, const char *key, String *out,
-                          size_t cap) {
+// Extracts elements from the "key":[ ... ] array using a provided skip function.
+size_t extractArray(const String &body, const char *key, String *out, size_t cap,
+                    char startChar, size_t (*skipFunc)(const String &, size_t)) {
   const size_t at = findJsonKey(body, key);
   if (at == (size_t)-1 || at >= body.length() || body[at] != '[') return 0;
   size_t pos = at + 1;
   size_t n = 0;
   while (pos < body.length() && n < cap) {
     pos = skipWhitespaceAndComma(body, pos);
-    if (pos >= body.length() || body[pos] != '{') break;
+    if (pos >= body.length() || body[pos] != startChar) break;
     const size_t start = pos;
-    pos = skipJsonObject(body, pos);
-    out[n++] = body.substring(start, pos);
+    pos = skipFunc(body, pos);
+    if (startChar == '"') {
+      if (pos > start + 2) out[n++] = body.substring(start + 1, pos - 1);
+    } else {
+      out[n++] = body.substring(start, pos);
+    }
   }
   return n;
+}
+
+// Extracts the top-level {...} objects from the "key":[ ... ] array.
+size_t extractObjectArray(const String &body, const char *key, String *out,
+                          size_t cap) {
+  return extractArray(body, key, out, cap, '{', skipJsonObject);
 }
 
 // Extracts the quoted strings from the "key":[ ... ] array.
 size_t extractStringArray(const String &body, const char *key, String *out,
                           size_t cap) {
-  const size_t at = findJsonKey(body, key);
-  if (at == (size_t)-1 || at >= body.length() || body[at] != '[') return 0;
-  size_t pos = at + 1;
-  size_t n = 0;
-  while (pos < body.length() && n < cap) {
-    pos = skipWhitespaceAndComma(body, pos);
-    if (pos >= body.length() || body[pos] != '"') break;
-    const size_t start = pos;
-    pos = skipJsonString(body, pos);
-    if (pos > start + 2) out[n++] = body.substring(start + 1, pos - 1);
-  }
-  return n;
+  return extractArray(body, key, out, cap, '"', skipJsonString);
 }
 
 // The value object of "key":{...} ("" if missing).
