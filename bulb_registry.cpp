@@ -304,13 +304,10 @@ uint8_t bulbBrightnessPct(const Bulb *bulb) {
 
 String bulbIeeeHex(const Bulb *bulb) {
   if (bulb == nullptr) return String();
-  String s;
-  s.reserve(16);
+  char buf[17];
   // esp_zb_ieee_addr_t is little-endian; print in network order (reverse).
-  for (int i = 7; i >= 0; --i) {
-    s += String(bulb->ieee[i] >> 4, HEX);
-    s += String(bulb->ieee[i] & 0x0f, HEX);
-  }
-  s.toLowerCase();
-  return s;
+  snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x%02x%02x",
+           bulb->ieee[7], bulb->ieee[6], bulb->ieee[5], bulb->ieee[4],
+           bulb->ieee[3], bulb->ieee[2], bulb->ieee[1], bulb->ieee[0]);
+  return String(buf);
 }
