@@ -81,13 +81,6 @@ void sendGroupMoveToColor(uint16_t x, uint16_t y, uint16_t transitionDs) {
   }, &cmd);
 }
 
-uint16_t kelvinToMireds(int kelvin) {
-  if (kelvin < MIN_KELVIN) kelvin = MIN_KELVIN;
-  if (kelvin > MAX_KELVIN) kelvin = MAX_KELVIN;
-  return (uint16_t)(1000000UL / (uint32_t)kelvin);
-}
-
-
 }  // namespace
 
 bool groupEnroll(Bulb *bulb) {
