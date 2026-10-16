@@ -43,6 +43,36 @@ void testInvalidHostnamesChars() {
   CHECK(!isValidHostname("a@b"));
 }
 
+void testParseRgbHex() {
+  check::begin("parseRgbHex: valid strings");
+  uint8_t r, g, b;
+
+  CHECK(parseRgbHex("123456", r, g, b));
+  CHECK_EQ((int)r, 0x12);
+  CHECK_EQ((int)g, 0x34);
+  CHECK_EQ((int)b, 0x56);
+
+  CHECK(parseRgbHex("#abcdef", r, g, b));
+  CHECK_EQ((int)r, 0xab);
+  CHECK_EQ((int)g, 0xcd);
+  CHECK_EQ((int)b, 0xef);
+
+  CHECK(parseRgbHex("ABCDEF", r, g, b));
+  CHECK_EQ((int)r, 0xAB);
+  CHECK_EQ((int)g, 0xCD);
+  CHECK_EQ((int)b, 0xEF);
+
+  check::begin("parseRgbHex: error cases");
+  CHECK(!parseRgbHex("", r, g, b)); // empty
+  CHECK(!parseRgbHex("#", r, g, b)); // empty after hash
+  CHECK(!parseRgbHex("12345", r, g, b)); // too short
+  CHECK(!parseRgbHex("1234567", r, g, b)); // too long
+  CHECK(!parseRgbHex("#1234567", r, g, b)); // too long with hash
+  CHECK(!parseRgbHex("123 45", r, g, b)); // invalid chars (space)
+  CHECK(!parseRgbHex("ZZZZZZ", r, g, b)); // invalid chars (not hex)
+  CHECK(!parseRgbHex("-12345", r, g, b)); // invalid chars (-)
+}
+
 } // namespace
 
 void runWebUtilsTests() {
@@ -50,4 +80,5 @@ void runWebUtilsTests() {
   testInvalidHostnamesLength();
   testInvalidHostnamesHyphens();
   testInvalidHostnamesChars();
+  testParseRgbHex();
 }
