@@ -165,80 +165,87 @@ void handleLightGet(const String &id) {
   sendJson(200, lightJson(b, server.hasArg("debug")));
 }
 
-bool parsePatchName(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg, bool &changed) {
+struct PatchContext {
+  int httpCode = 200;
+  String errorMsg;
+  bool changed = false;
+};
+
+bool parsePatchName(Bulb *b, const String &body, PatchContext &ctx) {
   String name;
   if (jsonGetString(body, "name", name)) {
     if (name.length() > 0 && name.length() <= 20) {
       registryRename(b, name.c_str());
-      changed = true;
+      ctx.changed = true;
     } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid name";
+      ctx.httpCode = 400;
+      ctx.errorMsg = "invalid name";
       return false;
     }
   }
   return true;
 }
 
-void parsePatchPower(Bulb *b, const String &body, bool &changed) {
+void parsePatchPower(Bulb *b, const String &body, PatchContext &ctx) {
   bool on;
   if (jsonGetBool(body, "on", on)) {
     on ? bulbSendOn(b) : bulbSendOff(b);
-    changed = true;
+    ctx.changed = true;
   }
 }
 
-void parsePatchBrightness(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+void parsePatchBrightness(Bulb *b, const String &body, uint16_t tds, PatchContext &ctx) {
   long brightness;
   if (jsonGetInt(body, "brightness", brightness)) {
     bulbSendBrightness(b, (uint8_t)constrain(brightness, 0, 100), tds);
-    changed = true;
+    ctx.changed = true;
   }
 }
 
-void parsePatchKelvin(Bulb *b, const String &body, uint16_t tds, bool &changed) {
+void parsePatchKelvin(Bulb *b, const String &body, uint16_t tds, PatchContext &ctx) {
   long kelvin;
   if (jsonGetInt(body, "kelvin", kelvin)) {
     bulbSendKelvin(b, (int)constrain(kelvin, MIN_KELVIN, MAX_KELVIN), tds);
-    changed = true;
+    ctx.changed = true;
   }
 }
 
-bool parsePatchRgbHex(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+bool parsePatchRgbHex(Bulb *b, const String &body, uint16_t tds, PatchContext &ctx) {
   String rgbHex;
   if (jsonGetString(body, "rgb_hex", rgbHex)) {
-    uint8_t r = 0, g = 0, bl = 0;
-    if (parseRgbHex(rgbHex, r, g, bl)) {
-      bulbSendRgb(b, r, g, bl, tds);
-      changed = true;
+    unsigned r = 0, g = 0, bl = 0;
+    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
+    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
+      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
+      ctx.changed = true;
     } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid rgb_hex";
+      ctx.httpCode = 400;
+      ctx.errorMsg = "invalid rgb_hex";
       return false;
     }
   }
   return true;
 }
 
-bool parsePatchMode(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
+bool parsePatchMode(Bulb *b, const String &body, uint16_t tds, PatchContext &ctx) {
   String mode;
   if (jsonGetString(body, "mode", mode)) {
     if (mode == "white") {
       bulbSendKelvin(b, b->state.kelvin, tds);
-      changed = true;
+      ctx.changed = true;
     } else if (mode == "rgb") {
       bulbSendRgb(b, b->state.red, b->state.green, b->state.blue, tds);
-      changed = true;
+      ctx.changed = true;
     } else {
-      outHttpCode = 400;
-      outErrorMsg = "invalid mode";
+      ctx.httpCode = 400;
+      ctx.errorMsg = "invalid mode";
       return false;
     }
   }
   return true;
 }
 
-bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outErrorMsg) {
+bool applyLightPatch(Bulb *b, const String &body, PatchContext &ctx) {
   // Transition override: 0 = cambio colore istantaneo (usato dal flash polizia).
   long transition = (long)DEFAULT_TRANSITION_DS;
   jsonGetInt(body, "transition", transition);
@@ -248,24 +255,22 @@ bool applyLightPatch(Bulb *b, const String &body, int &outHttpCode, String &outE
   static const char *controlKeys[] = {"on", "brightness", "kelvin", "rgb_hex", "mode"};
   for (const char *key : controlKeys) {
     if (findJsonKey(body, key) != (size_t)-1 && !bulbReady(b)) {
-      outHttpCode = 409;
-      outErrorMsg = "light is offline";
+      ctx.httpCode = 409;
+      ctx.errorMsg = "light is offline";
       return false;
     }
   }
 
-  bool changed = false;
+  if (!parsePatchName(b, body, ctx)) return false;
+  parsePatchPower(b, body, ctx);
+  parsePatchBrightness(b, body, tds, ctx);
+  parsePatchKelvin(b, body, tds, ctx);
+  if (!parsePatchRgbHex(b, body, tds, ctx)) return false;
+  if (!parsePatchMode(b, body, tds, ctx)) return false;
 
-  if (!parsePatchName(b, body, outHttpCode, outErrorMsg, changed)) return false;
-  parsePatchPower(b, body, changed);
-  parsePatchBrightness(b, body, tds, changed);
-  parsePatchKelvin(b, body, tds, changed);
-  if (!parsePatchRgbHex(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
-  if (!parsePatchMode(b, body, tds, outHttpCode, outErrorMsg, changed)) return false;
-
-  if (!changed) {
-    outHttpCode = 400;
-    outErrorMsg = "no recognized fields";
+  if (!ctx.changed) {
+    ctx.httpCode = 400;
+    ctx.errorMsg = "no recognized fields";
     return false;
   }
 
@@ -285,12 +290,11 @@ void handleLightPatch(const String &id) {
     return;
   }
 
-  int httpCode = 200;
-  String errorMsg;
-  if (applyLightPatch(b, body, httpCode, errorMsg)) {
+  PatchContext ctx;
+  if (applyLightPatch(b, body, ctx)) {
     sendJson(200, lightJson(b));
   } else {
-    sendJsonError(httpCode, errorMsg.c_str());
+    sendJsonError(ctx.httpCode, ctx.errorMsg.c_str());
   }
 }
 
@@ -1079,6 +1083,24 @@ void handleLightIdentifyPost(const String &id) {
   sendJson(200, "{\"ok\":true}");
 }
 
+bool parseStepDeltaAndTransition(const String &body, long &outDelta, uint16_t &outTds) {
+  long delta;
+  if (!jsonGetInt(body, "delta", delta)) {
+    sendJsonError(400, "missing delta");
+    return false;
+  }
+  if (delta < -100 || delta > 100) {
+    sendJsonError(400, "delta out of range (-100..100)");
+    return false;
+  }
+  long transition = (long)DEFAULT_TRANSITION_DS;
+  jsonGetInt(body, "transition", transition);
+
+  outDelta = delta;
+  outTds = (uint16_t)constrain(transition, 0, 6000);
+  return true;
+}
+
 // POST /api/lights/{id}/refresh: ask the bulb for its real state now.
 void handleLightRefreshPost(const String &id) {
   Bulb *b = bulbByApiId(id);
@@ -1111,17 +1133,8 @@ void handleLightStepPost(const String &id) {
     return;
   }
   long delta;
-  if (!jsonGetInt(body, "delta", delta)) {
-    sendJsonError(400, "missing delta");
-    return;
-  }
-  if (delta < -100 || delta > 100) {
-    sendJsonError(400, "delta out of range (-100..100)");
-    return;
-  }
-  long transition = (long)DEFAULT_TRANSITION_DS;
-  jsonGetInt(body, "transition", transition);
-  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+  uint16_t tds;
+  if (!parseStepDeltaAndTransition(body, delta, tds)) return;
   const int target = brightnessStepClamp(bulbBrightnessPct(b), (int)delta);
   bulbSendBrightness(b, (uint8_t)target, tds);
   sendJson(200, "{\"brightness\":" + String(target) + "}");
@@ -1134,17 +1147,8 @@ void handleAllStepPost() {
     return;
   }
   long delta;
-  if (!jsonGetInt(body, "delta", delta)) {
-    sendJsonError(400, "missing delta");
-    return;
-  }
-  if (delta < -100 || delta > 100) {
-    sendJsonError(400, "delta out of range (-100..100)");
-    return;
-  }
-  long transition = (long)DEFAULT_TRANSITION_DS;
-  jsonGetInt(body, "transition", transition);
-  const uint16_t tds = (uint16_t)constrain(transition, 0, 6000);
+  uint16_t tds;
+  if (!parseStepDeltaAndTransition(body, delta, tds)) return;
 
   // A group frame carries a single level: step the average of the reachable
   // bulbs, so "brighter/dimmer all" behaves sensibly with mixed states.
