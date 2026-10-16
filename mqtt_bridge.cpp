@@ -60,7 +60,11 @@ String inBuf;
 
 // Publish cache: (serialized state + online) per bulb, so unchanged bulbs
 // are not republished every poll.
-String publishSig[MAX_BULBS];
+struct BulbSig {
+  BulbState state;
+  bool online;
+};
+BulbSig publishSig[MAX_BULBS];
 bool sigKnown[MAX_BULBS] = {false};
 
 String willTopic;
@@ -575,11 +579,13 @@ void republishChanged() {
   lastPublishMs = now;
   for (size_t i = 0; i < registryCount(); ++i) {
     const Bulb *b = registryGet(i);
-    const String sig =
-        serializeBulbState(b->state) + (b->online ? "|on" : "|off");
-    if (sigKnown[i] && sig == publishSig[i]) continue;
+    if (sigKnown[i] && publishSig[i].online == b->online &&
+        memcmp(&publishSig[i].state, &b->state, sizeof(BulbState)) == 0) {
+      continue;
+    }
     publishBulb(b);
-    publishSig[i] = sig;
+    publishSig[i].state = b->state;
+    publishSig[i].online = b->online;
     sigKnown[i] = true;
     return;  // At most one bulb per tick.
   }
