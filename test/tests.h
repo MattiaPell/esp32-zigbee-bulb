@@ -19,3 +19,4 @@ void runConfigBackupTests();
 void runRemoteControlsTests();
 void runIdentifyTests();
 void runEffectsTests();
+void runStatusLedTests();
