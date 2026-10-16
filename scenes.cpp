@@ -188,13 +188,7 @@ bool sceneRecall(const String &name, int &applied, int &skipped) {
     if (!deserializeBulbState(wanted, entry.substring(semi + 1))) continue;
 
     // Locate the bulb by IEEE address (hex stored big-endian, like the API id).
-    Bulb *b = nullptr;
-    for (size_t i = 0; i < registryCount(); ++i) {
-      if (bulbIeeeHex(registryGet(i)).equalsIgnoreCase(ieeeHex)) {
-        b = registryGet(i);
-        break;
-      }
-    }
+    Bulb *b = registryFindByIeeeHex(ieeeHex);
     if (b == nullptr || !bulbReady(b)) {
       ++skipped;
       continue;
