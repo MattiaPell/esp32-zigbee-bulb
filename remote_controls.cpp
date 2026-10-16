@@ -603,14 +603,7 @@ bool remoteEnroll(const esp_zb_ieee_addr_t ieee, uint16_t shortAddr,
 RemoteBindResult remoteBindToLight(const String &id, const String &bulbId) {
   Remote *r = findByApiId(id);
   if (r == nullptr) return REMOTE_BIND_UNKNOWN;
-  Bulb *b = nullptr;
-  for (size_t i = 0; i < registryCount(); ++i) {
-    Bulb *cand = registryGet(i);
-    if (cand != nullptr && bulbIeeeHex(cand).equalsIgnoreCase(bulbId)) {
-      b = cand;
-      break;
-    }
-  }
+  Bulb *b = registryFindByIeeeHex(bulbId);
   if (b == nullptr) return REMOTE_BIND_UNKNOWN;
 
   // The remote's short address changes at every rejoin: prefer the fresh
