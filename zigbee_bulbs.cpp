@@ -229,13 +229,6 @@ DeviceInfo members[MEMBER_CAP];
 size_t memberCount = 0;
 uint32_t lastMembersMs = 0;
 
-uint16_t kelvinToMireds(int kelvin) {
-  if (kelvin < MIN_KELVIN) kelvin = MIN_KELVIN;
-  if (kelvin > MAX_KELVIN) kelvin = MAX_KELVIN;
-  return (uint16_t)(1000000UL / (uint32_t)kelvin);
-}
-
-
 Bulb *bulbByIeeeFromResponse(const esp_zb_ieee_addr_t ieee) {
   return registryFindByIeee(ieee);
 }
