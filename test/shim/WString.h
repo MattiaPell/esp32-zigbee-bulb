@@ -15,6 +15,13 @@
 
 class String {
  public:
+  void trim() {
+    size_t start = 0;
+    while (start < s_.length() && isspace(s_[start])) start++;
+    size_t end = s_.length();
+    while (end > start && isspace(s_[end - 1])) end--;
+    s_ = s_.substr(start, end - start);
+  }
   String() = default;
   String(const char *s) : s_(s != nullptr ? s : "") {}
   String(const std::string &s) : s_(s) {}
