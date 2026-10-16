@@ -207,10 +207,9 @@ void parsePatchKelvin(Bulb *b, const String &body, uint16_t tds, bool &changed) 
 bool parsePatchRgbHex(Bulb *b, const String &body, uint16_t tds, int &outHttpCode, String &outErrorMsg, bool &changed) {
   String rgbHex;
   if (jsonGetString(body, "rgb_hex", rgbHex)) {
-    unsigned r = 0, g = 0, bl = 0;
-    if (rgbHex[0] == '#') rgbHex = rgbHex.substring(1);
-    if (rgbHex.length() == 6 && sscanf(rgbHex.c_str(), "%02x%02x%02x", &r, &g, &bl) == 3) {
-      bulbSendRgb(b, (uint8_t)r, (uint8_t)g, (uint8_t)bl, tds);
+    uint8_t r = 0, g = 0, bl = 0;
+    if (parseRgbHex(rgbHex, r, g, bl)) {
+      bulbSendRgb(b, r, g, bl, tds);
       changed = true;
     } else {
       outHttpCode = 400;
