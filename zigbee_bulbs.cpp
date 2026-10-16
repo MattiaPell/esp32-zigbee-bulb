@@ -61,13 +61,6 @@ esp_zb_ieee_addr_t verifyBlacklist[VERIFY_BLACKLIST];
 size_t verifyBlacklistCount = 0;
 uint32_t lastVerifyMs = 0;
 
-bool ieeeListContains(const esp_zb_ieee_addr_t list[], size_t count, const esp_zb_ieee_addr_t ieee) {
-  for (size_t i = 0; i < count; ++i) {
-    if (memcmp(list[i], ieee, sizeof(esp_zb_ieee_addr_t)) == 0) return true;
-  }
-  return false;
-}
-
 bool hasCluster(const esp_zb_af_simple_desc_1_1_t *desc, uint8_t start_index, uint8_t count, uint16_t cluster_id) {
   if (desc == nullptr) return false;
   for (uint8_t c = start_index; c < start_index + count; ++c) {
