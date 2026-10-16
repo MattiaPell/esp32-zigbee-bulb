@@ -72,6 +72,7 @@ bool mock_deserializeBulbState_scenes(BulbState & state, const String & data) {
 
 #define registryCount mock_registryCount_scenes
 #define registryGet mock_registryGet_scenes
+#define registryFindByIeeeHex mock_registryFindByIeeeHex_scenes
 #define bulbIeeeHex mock_bulbIeeeHex_scenes
 #define bulbReady mock_bulbReady_scenes
 
@@ -79,12 +80,20 @@ size_t mock_registry_count = 0;
 Bulb mock_bulbs_scenes[5];
 
 size_t mock_registryCount_scenes() { return mock_registry_count; }
-Bulb* mock_registryGet_scenes(size_t index) { return &mock_bulbs_scenes[index]; }
-
 String mock_bulbIeeeHex_scenes(const Bulb *b) {
   char buf[32];
   snprintf(buf, sizeof(buf), "%08lx", (unsigned long)b);
   return String(buf);
+}
+
+Bulb* mock_registryGet_scenes(size_t index) { return &mock_bulbs_scenes[index]; }
+Bulb* mock_registryFindByIeeeHex_scenes(const String &ieeeHex) {
+  for (size_t i = 0; i < mock_registry_count; ++i) {
+    if (mock_bulbIeeeHex_scenes(&mock_bulbs_scenes[i]).equalsIgnoreCase(ieeeHex)) {
+      return &mock_bulbs_scenes[i];
+    }
+  }
+  return nullptr;
 }
 bool mock_bulbReady_scenes(const Bulb *b) { return b->online; }
 

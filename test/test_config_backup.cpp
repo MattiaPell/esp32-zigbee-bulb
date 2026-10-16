@@ -35,6 +35,7 @@ bool webSetHostname(const String &) { return true; }
 #define registryMarkDirty mock_registryMarkDirty_cfg
 #define registryFlush mock_registryFlush_cfg
 #define registryAdd mock_registryAdd_cfg
+#define registryFindByIeeeHex mock_registryFindByIeeeHex_cfg
 
 #define scenesCount mock_scenesCount_cfg
 #define sceneNameAt mock_sceneNameAt_cfg
@@ -50,6 +51,7 @@ void mock_registryRename_cfg(Bulb*, const char*) {}
 void mock_registryMarkDirty_cfg() {}
 void mock_registryFlush_cfg() {}
 Bulb* mock_registryAdd_cfg(esp_zb_ieee_addr_t) { return nullptr; }
+Bulb* mock_registryFindByIeeeHex_cfg(const String&) { return nullptr; }
 
 size_t mock_scenesCount_cfg() { return 0; }
 String mock_sceneNameAt_cfg(size_t) { return ""; }

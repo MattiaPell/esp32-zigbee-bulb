@@ -166,13 +166,7 @@ void restoreBulbs(const String &body, size_t &bulbsRestored, size_t &bulbsSkippe
     }
 
     // Locate by IEEE hex (little-endian binary), matching the API id.
-    Bulb *b = nullptr;
-    for (size_t k = 0; k < registryCount(); ++k) {
-      if (bulbIeeeHex(registryGet(k)).equalsIgnoreCase(ieeeHex)) {
-        b = registryGet(k);
-        break;
-      }
-    }
+    Bulb *b = registryFindByIeeeHex(ieeeHex);
     if (b == nullptr) {
       esp_zb_ieee_addr_t ieee = {0};
       for (int k = 0; k < 8; ++k) {
