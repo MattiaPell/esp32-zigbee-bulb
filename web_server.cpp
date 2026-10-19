@@ -368,7 +368,13 @@ bool isAuthorized(HTTPMethod method) {
   return requestAuthorized(method == HTTP_GET || method == HTTP_HEAD,
                            method == HTTP_OPTIONS, server.header("Host"),
                            server.header("Origin"), tokenValid(), hostnameValue,
-                           server.client().localIP().toString());
+                           server.client().localIP().toString(),
+#if defined(REQUIRE_TOKEN_FOR_WRITES)
+                           true
+#else
+                           false
+#endif
+  );
 }
 
 void handleOtaUpload(HTTPUpload &upload) {

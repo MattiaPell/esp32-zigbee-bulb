@@ -40,4 +40,16 @@ void runWebAuthTests() {
   CHECK(!req(false, "evil.example.com", "", true));
 
   CHECK(requestAuthorized(false, true, String("bulb.local"), String(""), false, host, ip));
+
+  // Strict mode: every write needs the token, even from our own page.
+  auto strict = [&](const char *o, bool tok) {
+    return requestAuthorized(false, false, String("bulb.local"), String(o), tok,
+                             host, ip, true);
+  };
+  CHECK(!strict("http://bulb.local", false));
+  CHECK(strict("http://bulb.local", true));
+  CHECK(strict("", true));
+  CHECK(!strict("http://evil.example.com", true));
+  CHECK(requestAuthorized(true, false, String("bulb.local"), String(""), false,
+                          host, ip, true));  // Reads stay open.
 }

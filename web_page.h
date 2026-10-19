@@ -196,7 +196,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
  <div id="t-fw" hidden>
   <div class="kv">Carica un firmware <b>.bin</b> compilato per questo progetto. Al termine il dispositivo si riavvia: la pagina non risponde per qualche decina di secondi, poi si aggiorna da sola.</div>
   <input type="file" id="otaFile" accept=".bin" style="margin:10px 0">
-  <label>Token OTA (se richiesto dal server)</label><input type="text" id="otaTok" autocomplete="off">
+  <label>Token OTA (se richiesto dal server; salvato in questo browser)</label><input type="text" id="otaTok" autocomplete="off">
   <label>MD5 atteso (opzionale)</label><input type="text" id="otaMd5" maxlength="32" autocomplete="off">
   <div class="drow" style="justify-content:flex-start"><button id="otaGo" class="primary">Avvia aggiornamento</button><span class="tmrleft" id="otaPct"></span></div>
   <div class="pbar" id="otaBar" hidden><div class="pfill" id="otaFill"></div></div>
@@ -209,6 +209,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
+{const t=$('otaTok');if(t){try{t.value=localStorage.getItem('otaTok')||''}catch(e){}t.addEventListener('input',()=>{try{localStorage.setItem('otaTok',t.value.trim())}catch(e){}})}}
 let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],presetsCache=[],effectState={active:'none',effects:[]},lastScene='';
 const ACT_LABELS={none:'Nessuna',all_on:'Tutte on',all_off:'Tutte off',toggle_all:'Toggle tutte',brightness_up:'Luminosità +',brightness_down:'Luminosità −',scene_next:'Scena succ.',scene_prev:'Scena prec.'};
 const EV_LABELS={on:'Tasto on',off:'Tasto off',toggle:'Centrale (toggle)',move_up:'Anello su',move_down:'Anello giù',stop:'Rilascio anello',step_up:'Step su',step_down:'Step giù',color_a:'Freccia/dir. A',color_b:'Freccia/dir. B'};
@@ -236,7 +237,7 @@ function reorderCards(fromId,toId){
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),2200)}
 async function api(path,opts){
  opts=opts||{};opts.headers=opts.headers||{};
- const otaEl=$('otaTok');const tok=otaEl?otaEl.value.trim():'';if(tok)opts.headers['X-OTA-TOKEN']=tok;
+ const otaEl=$('otaTok');let tok=otaEl?otaEl.value.trim():'';if(!tok){try{tok=localStorage.getItem('otaTok')||''}catch(e){}}if(tok)opts.headers['X-OTA-TOKEN']=tok;
  const r=await fetch(path,opts);const j=await r.json().catch(()=>({}));
  if(!r.ok){toast(j.error||('Errore '+r.status));throw new Error(j.error||r.status)}return j}
 

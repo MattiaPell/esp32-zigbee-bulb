@@ -9,6 +9,11 @@
 // firmware uploads (POST /api/ota) to prevent unauthorized updates.
 #define OTA_TOKEN "your-ota-secret"
 
+// Optional: require the token above on EVERY state-changing request
+// (POST/PATCH/DELETE), not only the sensitive ones. The web page sends the
+// token saved in its settings dialog. Reads stay open on the LAN.
+// #define REQUIRE_TOKEN_FOR_WRITES
+
 // Optional: seed one webhook URL for event notifications (used only if no
 // URL was ever configured via /api/hooks). Uncomment to enable.
 // #define WEBHOOK_URL_1 "https://example.com/light-hooks"

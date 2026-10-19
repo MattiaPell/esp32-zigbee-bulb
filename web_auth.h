@@ -47,14 +47,18 @@ inline bool originOrHostAllowed(const String &value, const char *prefix,
 //    ("null" is refused): blocks CSRF.
 //  - State-changing requests without Origin are not from a browser; they are
 //    accepted only with a valid token (curl, scripts, Home Assistant).
+//  - With requireTokenForWrites (REQUIRE_TOKEN_FOR_WRITES in secrets.h) every
+//    state-changing request needs the token, browsers included.
 inline bool requestAuthorized(bool isGetOrHead, bool isOptions,
                               const String &host, const String &origin,
                               bool tokenValid, const String &hostname,
-                              const String &ip) {
+                              const String &ip,
+                              bool requireTokenForWrites = false) {
   if (host.length() > 0 && !originOrHostAllowed(host, "", hostname, ip)) {
     return false;
   }
   if (isOptions || isGetOrHead) return true;
+  if (requireTokenForWrites && !tokenValid) return false;
   if (origin.length() == 0) return tokenValid;
   if (origin == "null") return false;
   return originOrHostAllowed(origin, "http://", hostname, ip);

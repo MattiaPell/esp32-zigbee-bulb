@@ -6,18 +6,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-
-- `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
-- Write requests without an `Origin` header (curl, scripts) were always
-  rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
-
-### Security
-
-- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
-
 ### Added
 
+- Optional `REQUIRE_TOKEN_FOR_WRITES` (`secrets.h`): token required on every
+  state-changing request. The web page remembers the token in `localStorage`.
 - Host-side unit tests (`test/`) for the pure logic (`json_lite.h`, the preset
   table, the adaptive curve) plus a `host-tests` CI job. Run them with
   `bash test/run.sh` (or `powershell -File test/run.ps1`).
@@ -46,15 +38,24 @@ follows [Semantic Versioning](https://semver.org/).
 - Web UI: update (re-capture) an existing scene from its chip, without
   deleting and recreating it.
 
+### Changed
+
+- Bulb and remote names keep well-formed UTF-8 (accents) instead of turning
+  them into spaces; names are never cut mid-character (`name_sanitize.h`).
+
 ### Fixed
 
+- `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
+- Write requests without an `Origin` header (curl, scripts) were always
+  rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
 - `json_lite.h`: a string value that happens to equal the name of a later key
   (e.g. a bulb named `"power"`) no longer shadows the real key.
 
 ### Security
 
-- (unchanged) The REST API has no authentication: keep the controller on a
-  trusted LAN.
+- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
+- Light control is open on the LAN unless `REQUIRE_TOKEN_FOR_WRITES` is
+  defined: keep the controller on a trusted network.
 
 ## [1.1.0] - 2026-09-10
 
