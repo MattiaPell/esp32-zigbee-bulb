@@ -38,6 +38,17 @@ constexpr uint16_t DEFAULT_TRANSITION_DS = 5;   // Zigbee transition, 0.1 s unit
 constexpr uint16_t MAX_TRANSITION_DS = 600;     // 60 s cap
 
 // ---------------------------------------------------------------------------
+// Event stream (Server-Sent Events, own port: the WebServer is single-threaded)
+// ---------------------------------------------------------------------------
+constexpr uint16_t EVENTS_PORT = 81;
+constexpr size_t EVENTS_MAX_CLIENTS = 3;       // Open streams
+constexpr size_t EVENTS_MAX_PENDING = 2;       // Requests still being read
+constexpr size_t EVENTS_MAX_HEAD = 512;        // Request head cap (bytes)
+constexpr uint32_t EVENTS_HANDSHAKE_MS = 2000; // Drop slow/idle handshakes
+constexpr uint32_t EVENTS_CHECK_MS = 250;      // State-change detection period
+constexpr uint32_t EVENTS_HEARTBEAT_MS = 15000;
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 constexpr char PREFS_NAMESPACE[] = "bulbs";
@@ -71,6 +82,19 @@ constexpr uint32_t OTA_VALIDATION_MS = 90000;
 // Delay before rebooting after a successful upload, so the HTTP response
 // reaches the client first.
 constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
+
+// ---------------------------------------------------------------------------
+// Updates from GitHub releases (see auto_update.cpp)
+// ---------------------------------------------------------------------------
+constexpr char UPDATE_REPO[] = "MattiaPell/esp32-zigbee-bulb";  // owner/repo
+constexpr char UPDATE_ASSET[] = "esp32-zigbee-bulb.bin";        // Release asset
+constexpr char UPDATE_SHA_ASSET[] = "esp32-zigbee-bulb.bin.sha256";
+constexpr uint32_t UPDATE_FIRST_CHECK_MS = 120000;   // After boot
+constexpr uint32_t UPDATE_CHECK_INTERVAL_MS = 24UL * 3600UL * 1000UL;
+constexpr uint32_t UPDATE_RETRY_MS = 3600UL * 1000UL;  // After a failed check
+constexpr uint32_t UPDATE_AUTO_MIN_UPTIME_MS = 300000;  // No auto-install earlier
+constexpr size_t UPDATE_MAX_BYTES = 0x1E0000;           // One OTA slot
+constexpr uint32_t UPDATE_STALL_MS = 15000;             // Abort a stuck download
 
 // ---------------------------------------------------------------------------
 // Webhooks

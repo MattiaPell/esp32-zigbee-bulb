@@ -1,0 +1,67 @@
+name: release
+
+# When a GitHub release is published, build the firmware from the tagged
+# commit and attach the two assets the on-device updater downloads:
+#   esp32-zigbee-bulb.bin         app image for the OTA slot
+#   esp32-zigbee-bulb.bin.sha256  its SHA-256 ("sha256sum" format)
+# The image is built from secrets.example.h (placeholder secrets, no MQTT):
+# devices keep their own Wi-Fi / token, stored in NVS by an earlier build.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Tag must match FW_VERSION
+        run: |
+          fw=$(sed -n 's/.*FW_VERSION\[\] = "\(.*\)";.*/\1/p' config.h)
+          if [ "v$fw" != "$TAG" ]; then
+            echo "::error::Release tag $TAG does not match FW_VERSION $fw in config.h"
+            exit 1
+          fi
+
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install "Adafruit NeoPixel"
+
+      - name: Build with placeholder secrets
+        run: |
+          cp secrets.example.h secrets.h
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32c6:ZigbeeMode=zczr,PartitionScheme=custom,CDCOnBoot=default" \
+            --warnings none \
+            --output-dir out \
+            .
+
+      - name: Check size and compute checksum
+        run: |
+          cp out/esp32-zigbee-bulb.ino.bin esp32-zigbee-bulb.bin
+          size=$(stat -c %s esp32-zigbee-bulb.bin)
+          echo "Firmware size: $size bytes (slot limit 1966080)"
+          if [ "$size" -gt 1966080 ]; then
+            echo "::error::Image does not fit an OTA slot"
+            exit 1
+          fi
+          sha256sum esp32-zigbee-bulb.bin > esp32-zigbee-bulb.bin.sha256
+          cat esp32-zigbee-bulb.bin.sha256
+
+      - name: Attach assets to the release
+        run: |
+          gh release upload "$TAG" esp32-zigbee-bulb.bin esp32-zigbee-bulb.bin.sha256 --clobber

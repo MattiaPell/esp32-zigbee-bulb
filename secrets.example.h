@@ -8,6 +8,9 @@
 // Required: this token must be provided in the X-OTA-TOKEN header for
 // firmware uploads (POST /api/ota) to prevent unauthorized updates.
 #define OTA_TOKEN "your-ota-secret"
+// Your real values are copied to NVS at every boot, so firmware published as a
+// GitHub release (built with the placeholders) keeps working. Placeholder
+// values are never used: the token routes stay disabled without a real one.
 
 // Optional: require the token above on EVERY state-changing request
 // (POST/PATCH/DELETE), not only the sensitive ones. The web page sends the

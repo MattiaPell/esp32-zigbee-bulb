@@ -27,6 +27,8 @@ int main() {
   runSerialConsoleTests();
   runOtaUpdateTests();
   runWebAuthTests();
+  runSseTests();
+  runUpdateCheckTests();
 
   const int failed = check::failures();
   const int total = check::checks();

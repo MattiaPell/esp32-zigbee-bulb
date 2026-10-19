@@ -8,6 +8,19 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Updates from GitHub releases (`auto_update.cpp`, `update_check.h`): daily
+  check, `off` / `notify` / `auto` modes, SHA-256 verification, rollback-aware
+  (a rolled-back tag is not retried automatically). `GET/POST /api/update`,
+  `POST /api/update/check` and `/install`, a section in Settings > Firmware and
+  a status badge. Not available in MQTT builds.
+- `release` workflow: builds the image from `secrets.example.h` when a release
+  is published and attaches `esp32-zigbee-bulb.bin` and its `.sha256`.
+- Credentials (`credentials.cpp`): the Wi-Fi settings and API token from
+  `secrets.h` are copied to NVS at every boot; placeholder values (generic
+  release images) fall back to the stored copy.
+- Live updates: a Server-Sent Events change stream on port 81 (`events.cpp`,
+  pure helpers in `sse.h`, unit-tested). The page refreshes on events and
+  polls only every 10 s while the stream is up (2.5 s otherwise).
 - Optional `REQUIRE_TOKEN_FOR_WRITES` (`secrets.h`): token required on every
   state-changing request. The web page remembers the token in `localStorage`.
 - Host-side unit tests (`test/`) for the pure logic (`json_lite.h`, the preset
@@ -40,6 +53,8 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- A missing or placeholder `OTA_TOKEN` now disables the token-protected
+  routes instead of accepting the public placeholder.
 - Bulb and remote names keep well-formed UTF-8 (accents) instead of turning
   them into spaces; names are never cut mid-character (`name_sanitize.h`).
 
