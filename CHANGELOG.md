@@ -6,6 +6,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
+- Write requests without an `Origin` header (curl, scripts) were always
+  rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
+
+### Security
+
+- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
+
 ### Added
 
 - Host-side unit tests (`test/`) for the pure logic (`json_lite.h`, the preset

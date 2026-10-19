@@ -1,5 +1,6 @@
 #include "web_server.h"
 
+#include "web_auth.h"
 #include "web_utils.h"
 
 #include <ESPmDNS.h>
@@ -215,7 +216,7 @@ void handleLightDebugGet(const String &id) {
   char buf[64];
   snprintf(buf, sizeof(buf), ",\"endpoint\":%d,\"short_addr\":\"0x%x\"", b->endpoint, b->shortAddr);
   j += buf;
-  j += "\",\"debug\":";
+  j += ",\"debug\":";
   j += lightDebugJson(b);
   j += "}";
   sendJson(200, j);
@@ -359,55 +360,15 @@ void handleStatusGet() {
 // state machine. WebServer is single-threaded, so while the upload is being
 // parsed no other request reaches dispatch().
 
+bool tokenValid() {
+  return tokenMatches(server.header("X-OTA-TOKEN"), OTA_TOKEN);
+}
+
 bool isAuthorized(HTTPMethod method) {
-  // Always validate Host for DNS Rebinding protection (even on GET)
-  String host = server.header("Host");
-  if (host.length() > 0) {
-    String expectedLocal = hostnameValue + ".local";
-    String expectedIp = server.client().localIP().toString();
-    String expectedLocalhost = "localhost";
-    String expectedBare = hostnameValue;
-
-    if (host != expectedLocal && !host.startsWith(expectedLocal + ":") &&
-        host != expectedIp && !host.startsWith(expectedIp + ":") &&
-        host != expectedLocalhost && !host.startsWith(expectedLocalhost + ":") &&
-        host != expectedBare && !host.startsWith(expectedBare + ":")) {
-      return false;
-    }
-  }
-
-  // Preflight is allowed if Host passed
-  if (method == HTTP_OPTIONS) {
-    return true;
-  }
-
-  // For state-changing requests, also validate Origin to protect against CSRF
-  if (method != HTTP_GET && method != HTTP_HEAD) {
-    String origin = server.header("Origin");
-
-    // If Origin is present but doesn't match expected values, reject.
-    // Origin: null is also a failure for state-changing requests.
-    if (origin.length() > 0) {
-      if (origin == "null") return false;
-
-      String expectedLocal = "http://" + hostnameValue + ".local";
-      String expectedIp = "http://" + server.client().localIP().toString();
-      String expectedLocalhost = "http://localhost";
-      String expectedBare = "http://" + hostnameValue;
-
-      if (origin != expectedLocal && !origin.startsWith(expectedLocal + ":") &&
-          origin != expectedIp && !origin.startsWith(expectedIp + ":") &&
-          origin != expectedLocalhost && !origin.startsWith(expectedLocalhost + ":") &&
-          origin != expectedBare && !origin.startsWith(expectedBare + ":")) {
-        return false;
-      }
-    } else {
-      // If Origin is NOT present on a state-changing request, reject it to prevent CSRF.
-      return false;
-    }
-  }
-
-  return true;
+  return requestAuthorized(method == HTTP_GET || method == HTTP_HEAD,
+                           method == HTTP_OPTIONS, server.header("Host"),
+                           server.header("Origin"), tokenValid(), hostnameValue,
+                           server.client().localIP().toString());
 }
 
 void handleOtaUpload(HTTPUpload &upload) {
@@ -417,7 +378,7 @@ void handleOtaUpload(HTTPUpload &upload) {
   }
   switch (upload.status) {
     case UPLOAD_FILE_START: {
-      bool allowed = server.header("X-OTA-TOKEN").equals(OTA_TOKEN);
+      bool allowed = tokenValid();
       if (allowed) {
         otaUploadStart(server.header("X-OTA-MD5"));
       } else {
@@ -714,7 +675,7 @@ void handleHooksGet() {
 }
 
 void handleHooksPost() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -732,7 +693,7 @@ void handleHooksPost() {
 }
 
 void handleHooksDelete() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -750,7 +711,7 @@ void handleHooksDelete() {
 }
 
 void handleHookTestPost() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -793,7 +754,7 @@ void handleMqttGet() {
 }
 
 void handleMqttPost() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -882,7 +843,7 @@ void handleRemoteActionsPost() {
 // --- Backup / restore ------------------------------------------------------------
 
 void handleBackupGet() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -890,7 +851,7 @@ void handleBackupGet() {
 }
 
 void handleRestorePost() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }
@@ -1059,7 +1020,7 @@ void handleAllStepPost() {
 }
 
 void handleHostnamePost() {
-  if (!server.header("X-OTA-TOKEN").equals(OTA_TOKEN)) {
+  if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
     return;
   }

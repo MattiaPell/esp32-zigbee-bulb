@@ -55,6 +55,9 @@ arduino-cli compile \
   IEEE address; short address and endpoint are runtime-only.
 - Runtime-only per-bulb data (LQI/RSSI, last-seen, command counters, group
   membership) is never persisted.
+- `web_auth.h`: pure, unit-tested request gate (Host/Origin allow-list,
+  token check). Browser writes need our Origin; Origin-less writes need the
+  token.
 - `json_lite.h`: the shared hand-rolled JSON helpers
   (`findJsonKey`, `jsonGetBool`, `jsonGetInt`, `jsonGetString`). No JSON
   library anywhere.
