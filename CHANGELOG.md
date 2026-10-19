@@ -10,24 +10,6 @@ follows [Semantic Versioning](https://semver.org/).
 
 - Optional `REQUIRE_TOKEN_FOR_WRITES` (`secrets.h`): token required on every
   state-changing request. The web page remembers the token in `localStorage`.
-
-### Changed
-
-- Bulb and remote names keep well-formed UTF-8 (accents) instead of turning
-  them into spaces; names are never cut mid-character (`name_sanitize.h`).
-
-### Fixed
-
-- `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
-- Write requests without an `Origin` header (curl, scripts) were always
-  rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
-
-### Security
-
-- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
-
-### Added
-
 - Host-side unit tests (`test/`) for the pure logic (`json_lite.h`, the preset
   table, the adaptive curve) plus a `host-tests` CI job. Run them with
   `bash test/run.sh` (or `powershell -File test/run.ps1`).
@@ -55,6 +37,21 @@ follows [Semantic Versioning](https://semver.org/).
   its real state on demand.
 - Web UI: update (re-capture) an existing scene from its chip, without
   deleting and recreating it.
+
+### Changed
+
+- Bulb and remote names keep well-formed UTF-8 (accents) instead of turning
+  them into spaces; names are never cut mid-character (`name_sanitize.h`).
+
+### Fixed
+
+- `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
+- Write requests without an `Origin` header (curl, scripts) were always
+  rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
+
+### Security
+
+- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
 
 ### Fixed
 
