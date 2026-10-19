@@ -210,7 +210,7 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
 'use strict';
 const $=id=>document.getElementById(id);
 {const t=$('otaTok');if(t){try{t.value=localStorage.getItem('otaTok')||''}catch(e){}t.addEventListener('input',()=>{try{localStorage.setItem('otaTok',t.value.trim())}catch(e){}})}}
-let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],presetsCache=[],effectState={active:'none',effects:[]},lastScene='';
+let lights=[],pollTimer=null,modeCache={},lastSig='',masterBusy=0,timerAllCache=0,scenesCache=[],presetsCache=[],effectState={active:'none',effects:[]},lastScene='',live=false,lastPoll=0;
 const ACT_LABELS={none:'Nessuna',all_on:'Tutte on',all_off:'Tutte off',toggle_all:'Toggle tutte',brightness_up:'Luminosità +',brightness_down:'Luminosità −',scene_next:'Scena succ.',scene_prev:'Scena prec.'};
 const EV_LABELS={on:'Tasto on',off:'Tasto off',toggle:'Centrale (toggle)',move_up:'Anello su',move_down:'Anello giù',stop:'Rilascio anello',step_up:'Step su',step_down:'Step giù',color_a:'Freccia/dir. A',color_b:'Freccia/dir. B'};
 
@@ -242,6 +242,7 @@ async function api(path,opts){
  if(!r.ok){toast(j.error||('Errore '+r.status));throw new Error(j.error||r.status)}return j}
 
 async function load(){
+ lastPoll=Date.now();
  try{
   lights=await api('/api/lights');
   scenesCache=await api('/api/scenes');
@@ -736,7 +737,18 @@ setInterval(pollLog,2000);
 $('statusLine').onclick=()=>$('setBtn').onclick();
 
 load();
-setInterval(load,2500);
+// Live updates: the controller pushes a change counter on port 81 (SSE) and the
+// page then fetches the API once. While the stream is up the poll only keeps
+// the timer countdowns fresh; without it (or if it drops) we poll as before.
+function startLive(){
+ if(!window.EventSource)return;
+ const es=new EventSource('http://'+location.hostname+':81/events');
+ es.onopen=()=>{live=true};
+ es.onmessage=()=>refreshSoon();
+ es.onerror=()=>{live=false};
+}
+startLive();
+setInterval(()=>{const now=Date.now();if(live&&now-lastPoll<10000)return;lastPoll=now;load()},2500);
 
 // Installable app: show the button when the browser offers the prompt.
 let installEvt=null;

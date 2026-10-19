@@ -25,6 +25,7 @@
 #include "config.h"
 #include "debug_log.h"
 #include "effects.h"
+#include "events.h"
 #include "identify.h"
 #include "light_timers.h"
 #include "mqtt_bridge.h"
@@ -88,6 +89,7 @@ void setup() {
   webBegin();
   webHooksBegin();  // Loads webhook URLs; a "boot" event announces startup.
   webHookEvent("boot", "", "", "");
+  eventsBegin();
   mqttBegin();  // No-op unless MQTT_HOST is defined in secrets.h.
 
   statusLedSetMode(StatusLedMode::ZigbeeStarting);
@@ -120,6 +122,7 @@ void loop() {
   registryTick();
   otaTick();
   webHooksTick();
+  eventsTick();
   mqttTick();
 
   updateStatusLed();

@@ -38,6 +38,17 @@ constexpr uint16_t DEFAULT_TRANSITION_DS = 5;   // Zigbee transition, 0.1 s unit
 constexpr uint16_t MAX_TRANSITION_DS = 600;     // 60 s cap
 
 // ---------------------------------------------------------------------------
+// Event stream (Server-Sent Events, own port: the WebServer is single-threaded)
+// ---------------------------------------------------------------------------
+constexpr uint16_t EVENTS_PORT = 81;
+constexpr size_t EVENTS_MAX_CLIENTS = 3;       // Open streams
+constexpr size_t EVENTS_MAX_PENDING = 2;       // Requests still being read
+constexpr size_t EVENTS_MAX_HEAD = 512;        // Request head cap (bytes)
+constexpr uint32_t EVENTS_HANDSHAKE_MS = 2000; // Drop slow/idle handshakes
+constexpr uint32_t EVENTS_CHECK_MS = 250;      // State-change detection period
+constexpr uint32_t EVENTS_HEARTBEAT_MS = 15000;
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 constexpr char PREFS_NAMESPACE[] = "bulbs";

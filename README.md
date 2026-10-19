@@ -32,6 +32,8 @@ Features:
   the API) without having to know the current level;
 - **installable app**: the control page is a PWA with its own icon —
   "Add to home screen" and it runs fullscreen like a native app;
+- **live updates**: the page is notified of changes over a Server-Sent
+  Events stream (port 81) instead of polling every 2.5 s;
 - light/dark theme and drag-to-reorder bulb cards (the order is kept in the
   browser);
 - light state (power, brightness, white tone or color) restored after a
@@ -448,6 +450,13 @@ scene or send commands afterwards.
 - **MQTT is QoS 0 over plain TCP** (no TLS): keep it on a trusted LAN.
   `https://` webhook targets *do* verify the server certificate (embedded CA
   bundle), so they need a publicly trusted certificate.
+- **Live updates use port 81** (`GET /events`, Server-Sent Events). It is a
+  second tiny listener because the single-threaded `WebServer` cannot hold a
+  stream open. The stream only carries a change counter (no light state, no
+  token); the same Host/Origin allow-list as the REST API applies. Up to 3
+  streams; without it the page falls back to polling. Reaching the device
+  through a proxy or port mapping that does not expose port 81 keeps the old
+  polling behaviour.
 - **The web server is single-threaded**: during a multipart OTA upload no
   other request is served, and long handlers block the loop.
 - **Token on every write (optional)**: define `REQUIRE_TOKEN_FOR_WRITES` in

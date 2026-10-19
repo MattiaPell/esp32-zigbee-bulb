@@ -8,6 +8,9 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Live updates: a Server-Sent Events change stream on port 81 (`events.cpp`,
+  pure helpers in `sse.h`, unit-tested). The page refreshes on events and
+  polls only every 10 s while the stream is up (2.5 s otherwise).
 - Optional `REQUIRE_TOKEN_FOR_WRITES` (`secrets.h`): token required on every
   state-changing request. The web page remembers the token in `localStorage`.
 - Host-side unit tests (`test/`) for the pure logic (`json_lite.h`, the preset

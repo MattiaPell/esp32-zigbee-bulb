@@ -58,6 +58,12 @@ arduino-cli compile \
 - `web_auth.h`: pure, unit-tested request gate (Host/Origin allow-list,
   token check). Browser writes need our Origin; Origin-less writes need the
   token.
+- `events.h` / `events.cpp` + `sse.h`: SSE change stream on its own
+  `WiFiServer` (port 81, `EVENTS_PORT`) because the `WebServer` is
+  single-threaded. It publishes only a change counter derived from a state
+  signature; keep the signature free of continuous values (timer countdowns)
+  and never put state or secrets on the stream. Same Host/Origin policy as
+  `web_auth.h`.
 - `name_sanitize.h`: shared bulb/remote display-name sanitizer (UTF-8 aware).
 - `json_lite.h`: the shared hand-rolled JSON helpers
   (`findJsonKey`, `jsonGetBool`, `jsonGetInt`, `jsonGetString`). No JSON
