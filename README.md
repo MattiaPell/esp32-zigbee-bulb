@@ -51,6 +51,9 @@ Features:
 - optional **MQTT bridge** for Home Assistant (hand-rolled client; compiled
   in only when a broker host is configured in `secrets.h`);
 - configurable mDNS hostname, so several controllers can share one network;
+- **updates from GitHub releases** (optional): the device checks for a new
+  release once a day and can install it by itself, with SHA-256 verification
+  and automatic rollback;
 - **OTA updates**: firmware upload over HTTP into a second slot, with
   automatic rollback if the new firmware fails to boot;
 - status LED (Wi-Fi / Zigbee / pairing / ready) and a serial console.
@@ -109,6 +112,58 @@ CI runs them on every push and pull request (the `host-tests` job).
 The custom 4 MB layout has two OTA application slots (1.875 MB each) next
 to Espressif's Zigbee storage partitions, so firmware updates also work
 over Wi-Fi (see "OTA updates" below).
+
+## Updates from GitHub releases
+
+The controller can check this repository's latest GitHub release once a day
+and install it. Pick the mode in **Settings > Firmware**
+(or `POST /api/update {"mode":"off|notify|auto"}`; off by default):
+
+- `notify`: shows "update available"; you press **Install**;
+- `auto`: installs by itself (not in the first 5 minutes after boot).
+
+How it works: `GET /releases/latest` is read only for its redirect (no API,
+no rate limits), then `esp32-zigbee-bulb.bin` and
+`esp32-zigbee-bulb.bin.sha256` are downloaded over HTTPS (certificate
+verified against the embedded CA bundle). The image is written to the idle
+slot, its SHA-256 must match, and only then the boot slot is switched. The
+usual rollback applies: if the new firmware does not stay up for 90 s the
+bootloader returns to the old one, and that version is not retried
+automatically.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET    | `/api/update` | mode, current/latest version, state, progress, last error |
+| POST   | `/api/update` | `{"mode":"off\|notify\|auto"}`; needs `X-OTA-TOKEN` |
+| POST   | `/api/update/check` | check now |
+| POST   | `/api/update/install` | install the newest known release; needs `X-OTA-TOKEN` |
+
+### One-time setup
+
+Wi-Fi, password and token live in `secrets.h`, which a public release cannot
+contain. The release image is therefore built from `secrets.example.h`
+(placeholders) and reads them from NVS, where **your own build copies them at
+every boot**. So: flash a build made from this version with your real
+`secrets.h` once over USB; from then on you can update from GitHub releases
+(or `curl` the release `.bin` to `/api/ota`) and the device keeps its network.
+Without a stored token, token-protected routes (OTA, hooks, backup,
+hostname, update mode/install) stay disabled; the placeholder token is never
+accepted.
+
+Not available when `MQTT_HOST` is defined: the release image has no MQTT
+bridge, so installing it would silently remove it. Build and flash those
+yourself.
+
+### Publishing a release (maintainers)
+
+1. Bump `FW_VERSION` in `config.h` (e.g. `1.2.0`) and merge to `main`.
+2. Create a GitHub release with tag `v1.2.0` (the same number).
+3. The `release` workflow builds the image from `secrets.example.h`, fails if
+   the tag and `FW_VERSION` differ or the image exceeds an OTA slot, and
+   attaches the `.bin` and `.sha256`. Devices pick it up within a day.
+
+Pre-releases and drafts are ignored by `releases/latest`. Forks change
+`UPDATE_REPO` in `config.h`.
 
 ## OTA updates
 

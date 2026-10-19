@@ -12,6 +12,7 @@
 
 #include "config.h"
 #include "debug_log.h"
+#include "tls_bundle_client.h"
 
 namespace {
 
@@ -83,20 +84,6 @@ struct PostTaskArgs {
   volatile bool success = false;
 };
 PostTaskArgs postTaskArgs;
-
-// Enable verification against the CA bundle compiled into the firmware
-// (CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL). The core offers no public
-// switch for it: NetworkClientSecure::setCACertBundle() needs an external
-// bundle blob, so this subclass flips the same two internals it would
-// (bundle_attach_cb + _use_ca_bundle) and lets ssl_client fall back to the
-// embedded bundle.
-class BundleVerifyingClient : public NetworkClientSecure {
- public:
-  void useBuiltinCACertBundle() {
-    attach_ssl_certificate_bundle(sslclient.get(), true);
-    _use_ca_bundle = true;
-  }
-};
 
 void postEventTask(void *arg __attribute__((unused))) {
   {

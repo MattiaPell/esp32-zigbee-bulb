@@ -21,8 +21,10 @@
 #endif
 
 #include "adaptive.h"
+#include "auto_update.h"
 #include "bulb_registry.h"
 #include "config.h"
+#include "credentials.h"
 #include "debug_log.h"
 #include "effects.h"
 #include "events.h"
@@ -77,6 +79,7 @@ void setup() {
   statusLedBegin();
   statusLedSetMode(StatusLedMode::WifiConnecting);
 
+  credBegin();  // Wi-Fi / token: secrets.h or the copy stored in NVS.
   registryBegin();
   scenesBegin();
   lightTimersBegin();
@@ -95,6 +98,7 @@ void setup() {
   statusLedSetMode(StatusLedMode::ZigbeeStarting);
   zigbeeBegin();  // Restarts the board if the stack cannot start.
 
+  updateBegin();  // Rollback bookkeeping for GitHub updates.
   otaBegin();  // Arms the pending-verify confirmation window if just OTA'd.
 
   debugLogPrintln("Ready. Web UI: see the IP printed above, or bulb.local");
@@ -121,6 +125,7 @@ void loop() {
   adaptiveTick();
   registryTick();
   otaTick();
+  updateTick();
   webHooksTick();
   eventsTick();
   mqttTick();

@@ -64,6 +64,16 @@ arduino-cli compile \
   signature; keep the signature free of continuous values (timer countdowns)
   and never put state or secrets on the stream. Same Host/Origin policy as
   `web_auth.h`.
+- `auto_update.h` / `auto_update.cpp` + `update_check.h`: GitHub release
+  updater. Network work runs in a short-lived FreeRTOS task; the main loop
+  only schedules and consumes the result. Flashing goes through the
+  `otaUpload*` state machine (rollback, pending-verify unchanged), after a
+  SHA-256 check. Disabled when `MQTT_HOST` is defined. Release assets are
+  built by `.github/workflows/release.yml` from `secrets.example.h`.
+- `credentials.h` / `credentials.cpp` + `credentials_logic.h`: Wi-Fi and API
+  token come from `secrets.h` when real, else from NVS (seeded by the user's
+  own build). Never read `WIFI_SSID` / `OTA_TOKEN` directly; use `cred*()`.
+  Placeholder values are never used.
 - `name_sanitize.h`: shared bulb/remote display-name sanitizer (UTF-8 aware).
 - `json_lite.h`: the shared hand-rolled JSON helpers
   (`findJsonKey`, `jsonGetBool`, `jsonGetInt`, `jsonGetString`). No JSON
@@ -94,6 +104,7 @@ arduino-cli compile \
   `Preferences`, `ESPmDNS`, `Zigbee`, `Update`, `HTTPClient`,
   `Adafruit NeoPixel`. Adding a dependency requires updating README and
   this file with a justification.
+- Releases are public: never build a release with real secrets.
 - Never commit `secrets.h`. All credentials and optional feature switches
   live there (see `secrets.example.h`); compile-time gates use
   `#if defined(...)` there, runtime toggles go to NVS + a REST endpoint.

@@ -84,6 +84,19 @@ constexpr uint32_t OTA_VALIDATION_MS = 90000;
 constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
 
 // ---------------------------------------------------------------------------
+// Updates from GitHub releases (see auto_update.cpp)
+// ---------------------------------------------------------------------------
+constexpr char UPDATE_REPO[] = "MattiaPell/esp32-zigbee-bulb";  // owner/repo
+constexpr char UPDATE_ASSET[] = "esp32-zigbee-bulb.bin";        // Release asset
+constexpr char UPDATE_SHA_ASSET[] = "esp32-zigbee-bulb.bin.sha256";
+constexpr uint32_t UPDATE_FIRST_CHECK_MS = 120000;   // After boot
+constexpr uint32_t UPDATE_CHECK_INTERVAL_MS = 24UL * 3600UL * 1000UL;
+constexpr uint32_t UPDATE_RETRY_MS = 3600UL * 1000UL;  // After a failed check
+constexpr uint32_t UPDATE_AUTO_MIN_UPTIME_MS = 300000;  // No auto-install earlier
+constexpr size_t UPDATE_MAX_BYTES = 0x1E0000;           // One OTA slot
+constexpr uint32_t UPDATE_STALL_MS = 15000;             // Abort a stuck download
+
+// ---------------------------------------------------------------------------
 // Webhooks
 // ---------------------------------------------------------------------------
 constexpr size_t WEBHOOK_MAX_URLS = 3;

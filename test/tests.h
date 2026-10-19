@@ -24,3 +24,4 @@ void runSerialConsoleTests();
 void runOtaUpdateTests();
 void runWebAuthTests();
 void runSseTests();
+void runUpdateCheckTests();

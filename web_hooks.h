@@ -8,7 +8,7 @@
 //    "detail":"","uptime_s":123,"version":"1.0.0"}
 // Events: boot, bulb_joined, bulb_removed, bulb_online, bulb_offline,
 // timer_expired, scene_applied, preset_applied, remote_pressed,
-// remote_bind_result, ota_success, ota_failed, ota_rejected.
+// remote_bind_result, ota_success, ota_failed, ota_rejected, update_available.
 //
 // Delivery is one POST per configured URL, queued and non-blocking at the
 // loop level (each POST itself blocks up to ~2 s while the connection runs).

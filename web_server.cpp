@@ -19,10 +19,13 @@
 #endif
 
 #include "adaptive.h"
+#include "auto_update.h"
 #include "brightness_step.h"
 #include "bulb_registry.h"
 #include "config.h"
 #include "config_backup.h"
+#include "credentials.h"
+#include "credentials_logic.h"
 #include "debug_log.h"
 #include "effects.h"
 #include "identify.h"
@@ -350,7 +353,9 @@ void handleStatusGet() {
   j += otaRunningSlot();
   j += "\",\"pending_verify\":";
   j += otaPendingVerify() ? "true" : "false";
-  j += "}}";  // Close the nested "ota" object AND the root object.
+  j += "},\"update\":\"";
+  j += updateAvailableVersion();
+  j += "\"}";  // Close the nested "ota" object AND the root object.
   sendJson(200, j);
 }
 
@@ -361,7 +366,10 @@ void handleStatusGet() {
 // parsed no other request reaches dispatch().
 
 bool tokenValid() {
-  return tokenMatches(server.header("X-OTA-TOKEN"), OTA_TOKEN);
+  const String &token = credOtaToken();
+  // A missing / placeholder token disables token auth altogether.
+  return credTokenUsable(token) &&
+         tokenMatches(server.header("X-OTA-TOKEN"), token.c_str());
 }
 
 bool isAuthorized(HTTPMethod method) {
@@ -1025,6 +1033,54 @@ void handleAllStepPost() {
                     String(applied) + "}");
 }
 
+// --- Updates from GitHub releases ---------------------------------------------
+
+void handleUpdateGet() {
+  sendJson(200, updateStatusJson());
+}
+
+void handleUpdateModePost() {
+  if (!tokenValid()) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
+  if (!updateSupported()) {
+    sendJsonError(409, "updates from GitHub are not available in MQTT builds");
+    return;
+  }
+  const String body = server.arg("plain");
+  if (body.length() > 512) {
+    sendJsonError(400, "body too large");
+    return;
+  }
+  String mode;
+  if (!jsonGetString(body, "mode", mode) || !updateSetMode(mode)) {
+    sendJsonError(400, "invalid mode (off, notify, auto)");
+    return;
+  }
+  sendJson(200, updateStatusJson());
+}
+
+void handleUpdateCheckPost() {
+  if (!updateCheckNow()) {
+    sendJsonError(409, "check not possible now (busy, offline, clock not synced or unsupported)");
+    return;
+  }
+  sendJson(200, "{\"queued\":true}");
+}
+
+void handleUpdateInstallPost() {
+  if (!tokenValid()) {
+    sendJsonError(403, "ota token missing or wrong");
+    return;
+  }
+  if (!updateInstallNow()) {
+    sendJsonError(409, "no newer release known, or an update is already running");
+    return;
+  }
+  sendJson(200, "{\"ok\":true}");
+}
+
 void handleHostnamePost() {
   if (!tokenValid()) {
     sendJsonError(403, "ota token missing or wrong");
@@ -1267,6 +1323,22 @@ bool dispatchApiSystem(const String& uri, HTTPMethod method) {
     handleDevicesGet();
     return true;
   }
+  if (uri == "/api/update" && method == HTTP_GET) {
+    handleUpdateGet();
+    return true;
+  }
+  if (uri == "/api/update" && method == HTTP_POST) {
+    handleUpdateModePost();
+    return true;
+  }
+  if (uri == "/api/update/check" && method == HTTP_POST) {
+    handleUpdateCheckPost();
+    return true;
+  }
+  if (uri == "/api/update/install" && method == HTTP_POST) {
+    handleUpdateInstallPost();
+    return true;
+  }
   if (uri == "/api/hostname" && method == HTTP_POST) {
     handleHostnamePost();
     return true;
@@ -1358,8 +1430,12 @@ bool webSetHostname(const String &name) {
 
 void webBegin() {
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  debugLogPrintf("Wi-Fi: connecting to %s\n", WIFI_SSID);
+  if (credWifiSsid().length() > 0) {
+    WiFi.begin(credWifiSsid().c_str(), credWifiPassword().c_str());
+    debugLogPrintf("Wi-Fi: connecting to %s\n", credWifiSsid().c_str());
+  } else {
+    debugLogPrintln("Wi-Fi: not configured");
+  }
 
   webPrefs.begin(PREFS_NAMESPACE, false);
   hostnameValue = webPrefs.getString("host", DEFAULT_HOSTNAME);

@@ -194,6 +194,18 @@ dialog input[type=text]{width:100%;font:inherit;background:var(--card2);color:va
   <div class="drow" style="justify-content:flex-start"><button id="actSave" class="small primary">Salva azioni</button></div>
  </div>
  <div id="t-fw" hidden>
+  <div id="updBox">
+   <b>Aggiornamenti da GitHub</b>
+   <div class="kv" id="updInfo"></div>
+   <label>Modalità</label>
+   <select id="updMode" style="font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card2);color:var(--txt)">
+    <option value="off">Spento</option><option value="notify">Avvisa (installo io)</option><option value="auto">Automatico</option>
+   </select>
+   <div class="drow" style="justify-content:flex-start"><button id="updCheck" class="small">Controlla ora</button><button id="updInstall" class="small primary" hidden>Installa</button></div>
+   <div class="pbar" id="updBar" hidden><div class="pfill" id="updFill"></div></div>
+   <div class="kv">Serve il token (campo qui sotto). Le release generiche usano il Wi-Fi salvato nel dispositivo: vedi README.</div>
+   <hr style="border:0;border-top:1px solid var(--line);margin:12px 0">
+  </div>
   <div class="kv">Carica un firmware <b>.bin</b> compilato per questo progetto. Al termine il dispositivo si riavvia: la pagina non risponde per qualche decina di secondi, poi si aggiorna da sola.</div>
   <input type="file" id="otaFile" accept=".bin" style="margin:10px 0">
   <label>Token OTA (se richiesto dal server; salvato in questo browser)</label><input type="text" id="otaTok" autocomplete="off">
@@ -254,6 +266,7 @@ async function load(){
   $('stext').textContent=`${s.bulbs} lampadine · ${s.ip} · ${s.rssi} dBm · heap ${heap} kB`;
   let bh='';
   if(s.pairing_open)bh+='<span class="badge sbadge">rete aperta</span>';
+  if(s.update)bh+='<span class="badge sbadge">aggiornamento '+esc(s.update)+'</span>';
   if(s.ota&&s.ota.pending_verify)bh+='<span class="badge sbadge warn">nuovo fw in verifica</span>';
   $('sbadges').innerHTML=bh;
   timerAllCache=s.timer_all||0;
@@ -580,15 +593,56 @@ $('adApply').onclick=async()=>{
  toast('Adattiva: '+(r.enabled?'attiva':'spenta'));
 };
 
+let updTimer=null;
+function paintUpdate(u){
+ const box=$('updBox');
+ if(!u){box.hidden=true;return}
+ box.hidden=false;
+ if(!u.supported){$('updInfo').textContent='Non disponibile in questa build (MQTT): compila e carica tu il firmware.';
+  $('updMode').disabled=$('updCheck').disabled=true;$('updInstall').hidden=true;$('updBar').hidden=true;return}
+ $('updMode').disabled=false;$('updMode').value=u.mode;
+ let t='Versione installata: '+u.current;
+ if(u.latest)t+=' · ultima release: '+u.latest;
+ if(u.last_check_s>=0)t+=' · controllo '+fmtT(u.last_check_s)+' fa'; else t+=' · mai controllato';
+ if(u.available)t+=' · <b>aggiornamento disponibile</b>';
+ if(u.auto_blocked)t+=' (già provato e annullato dal rollback: installa a mano se vuoi riprovare)';
+ if(u.state==='checking')t+=' · controllo in corso…';
+ if(u.state==='downloading')t+=' · download '+u.progress+'%';
+ if(u.state==='rebooting')t+=' · riavvio in corso…';
+ if(u.error)t+='<br>Ultimo errore: '+esc(u.error);
+ $('updInfo').innerHTML=t;
+ $('updInstall').hidden=!u.available||u.state!=='idle';
+ $('updInstall').textContent='Installa '+u.latest;
+ $('updCheck').disabled=u.state!=='idle';
+ $('updBar').hidden=u.state!=='downloading';$('updFill').style.width=u.progress+'%';
+ clearTimeout(updTimer);
+ if(u.state!=='idle'&&$('cfg').open)updTimer=setTimeout(async()=>{try{paintUpdate(await api('/api/update'))}catch(e){updTimer=setTimeout(()=>paintUpdate(u),2000)}},1500);
+}
+const jsonHdr={'Content-Type':'application/json'};
+$('updMode').onchange=async()=>{
+ try{paintUpdate(await api('/api/update',{method:'POST',headers:jsonHdr,body:JSON.stringify({mode:$('updMode').value})}));toast('Modalità aggiornamenti salvata')}
+ catch(e){try{paintUpdate(await api('/api/update'))}catch(e2){}}
+};
+$('updCheck').onclick=async()=>{
+ try{await api('/api/update/check',{method:'POST'});toast('Controllo in corso');setTimeout(async()=>{try{paintUpdate(await api('/api/update'))}catch(e){}},1500)}catch(e){}
+};
+$('updInstall').onclick=()=>{
+ const v=$('updInstall').textContent.replace('Installa ','');
+ openDialog('Installare '+v+'?','Il firmware viene scaricato da GitHub e verificato. Poi il dispositivo si riavvia: le luci restano ma la pagina non risponde per un minuto circa.',async()=>{
+  try{await api('/api/update/install',{method:'POST'});toast('Download avviato');paintUpdate(await api('/api/update'))}catch(e){}
+ },'Installa');
+};
+
 $('setBtn').onclick=async()=>{
  try{
-  const [s,devs,ls,rems,acts,ad]=await Promise.all([
+  const [s,devs,ls,rems,acts,ad,upd]=await Promise.all([
    api('/api/status'),
    api('/api/devices').catch(()=>[]),
    api('/api/lights?debug=1').catch(()=>[]),
    api('/api/remotes').catch(()=>[]),
    api('/api/remotes/actions').catch(()=>({})),
-   api('/api/adaptive').catch(()=>({}))
+   api('/api/adaptive').catch(()=>({})),
+   api('/api/update').catch(()=>null)
   ]);
   let devRows='';
   for(const d of devs){
@@ -634,6 +688,7 @@ $('setBtn').onclick=async()=>{
   $('hostIn').value=s.hostname;
   if(ad&&ad.enabled!==undefined){$('adEnabled').checked=!!ad.enabled;$('adTz').value=ad.tz_offset_min??60;$('adInfo').textContent=adSyncedText(ad);}
   $('otaMsg').textContent='';
+  paintUpdate(upd);
   switchTab('gen');
   $('cfg').showModal();
  }catch(e){}
