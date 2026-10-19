@@ -106,6 +106,22 @@ void testSanitizeName() {
   char small[6];
   sanitizeName(small, sizeof(small), "123456789");
   CHECK_EQ(std::string(small), "12345");
+
+  // Well-formed UTF-8 is kept; malformed bytes become spaces.
+  sanitizeName(out, sizeof(out), "Cucina \xC3\xA8");  // "Cucina è"
+  CHECK_EQ(std::string(out), "Cucina \xC3\xA8");
+  sanitizeName(out, sizeof(out), "A\xC3" "B");  // Truncated sequence.
+  CHECK_EQ(std::string(out), "A B");
+  sanitizeName(out, sizeof(out), "A\xC0\x80" "B");  // Overlong.
+  CHECK_EQ(std::string(out), "A  B");
+  sanitizeName(out, sizeof(out), "A\xED\xA0\x80" "B");  // Surrogate.
+  CHECK_EQ(std::string(out), "A   B");
+
+  // A multi-byte character is never cut in half at the buffer end.
+  sanitizeName(small, sizeof(small), "abcd\xC3\xA8");
+  CHECK_EQ(std::string(small), "abcd");
+  sanitizeName(small, sizeof(small), "abc\xC3\xA8");
+  CHECK_EQ(std::string(small), "abc\xC3\xA8");
 }
 
 void testSerializeBulbState() {

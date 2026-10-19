@@ -6,6 +6,7 @@
 #include "bulb_registry.h"
 #include "config.h"
 #include "debug_log.h"
+#include "name_sanitize.h"
 #include "json_lite.h"
 #include "scenes.h"
 #include "web_hooks.h"
@@ -683,14 +684,8 @@ String remoteIdAt(size_t index) {
 bool remoteRename(const String &id, const char *newName) {
   Remote *r = findByApiId(id);
   if (r == nullptr || newName == nullptr) return false;
-  char sanitized[24];
-  strlcpy(sanitized, newName, sizeof(sanitized));
-  for (char *p = sanitized; *p != '\0'; ++p) {
-    if (*p == '"' || *p == '\\' || (unsigned char)*p < 0x20 ||
-        (unsigned char)*p > 0x7e) {
-      *p = ' ';
-    }
-  }
+  char sanitized[sizeof(r->name)];
+  sanitizeDisplayName(sanitized, sizeof(sanitized), newName, "Remote");
   strlcpy(r->name, sanitized, sizeof(r->name));
   for (size_t i = 0; i < MAX_REMOTES; ++i) {
     if (&remotes[i] == r) {

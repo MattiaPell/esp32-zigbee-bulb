@@ -58,6 +58,7 @@ arduino-cli compile \
 - `web_auth.h`: pure, unit-tested request gate (Host/Origin allow-list,
   token check). Browser writes need our Origin; Origin-less writes need the
   token.
+- `name_sanitize.h`: shared bulb/remote display-name sanitizer (UTF-8 aware).
 - `json_lite.h`: the shared hand-rolled JSON helpers
   (`findJsonKey`, `jsonGetBool`, `jsonGetInt`, `jsonGetString`). No JSON
   library anywhere.

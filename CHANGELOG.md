@@ -6,6 +6,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Optional `REQUIRE_TOKEN_FOR_WRITES` (`secrets.h`): token required on every
+  state-changing request. The web page remembers the token in `localStorage`.
+
+### Changed
+
+- Bulb and remote names keep well-formed UTF-8 (accents) instead of turning
+  them into spaces; names are never cut mid-character (`name_sanitize.h`).
+
 ### Fixed
 
 - `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).

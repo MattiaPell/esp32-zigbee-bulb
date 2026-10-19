@@ -450,6 +450,13 @@ scene or send commands afterwards.
   bundle), so they need a publicly trusted certificate.
 - **The web server is single-threaded**: during a multipart OTA upload no
   other request is served, and long handlers block the loop.
+- **Token on every write (optional)**: define `REQUIRE_TOKEN_FOR_WRITES` in
+  `secrets.h` and every POST/PATCH/DELETE (light control included) needs
+  `X-OTA-TOKEN`; reads stay open. The web page remembers the token typed in
+  its settings dialog (stored in that browser's `localStorage`, so use it
+  only on devices you trust). Off by default: light control is open on the LAN.
+- **Names** accept accented letters (UTF-8) but the limit is 20 *bytes*, so
+  "è" counts as 2.
 - **`POST /api/ota` is for a trusted LAN only** (`OTA_TOKEN` must be defined
   in `secrets.h` and provided to authorize uploads).
 

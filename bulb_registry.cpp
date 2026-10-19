@@ -4,6 +4,7 @@
 
 #include "config.h"
 #include "debug_log.h"
+#include "name_sanitize.h"
 #include "status_led.h"
 
 namespace {
@@ -29,15 +30,7 @@ bool ieeeEquals(const esp_zb_ieee_addr_t a, const esp_zb_ieee_addr_t b) {
 const esp_zb_ieee_addr_t kNullIeee = {0, 0, 0, 0, 0, 0, 0, 0};
 
 void sanitizeName(char *out, size_t cap, const char *in) {
-  size_t o = 0;
-  for (const char *p = in; *p != '\0' && o + 1 < cap; ++p) {
-    char c = *p;
-    if (c == '"' || c == '\\' || c == '|' || c == ';' || c < 0x20 || c > 0x7e) c = ' ';
-    out[o++] = c;
-  }
-  while (o > 0 && out[o - 1] == ' ') o--;
-  out[o] = '\0';
-  if (out[0] == '\0') snprintf(out, cap, "Bulb");
+  sanitizeDisplayName(out, cap, in, "Bulb");
 }
 
 void serializeRuntimeAddr(const Bulb &b, String &out) {
