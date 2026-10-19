@@ -114,7 +114,8 @@ over Wi-Fi (see "OTA updates" below).
 inactive slot, then reboots into it:
 
 ```
-curl -F "update=@esp32-zigbee-bulb.ino.bin" http://bulb.local/api/ota
+curl -H "X-OTA-TOKEN: your-ota-secret" \
+  -F "update=@esp32-zigbee-bulb.ino.bin" http://bulb.local/api/ota
 ```
 
 - Optional checksum: send the MD5 of the `.bin` in the `X-OTA-MD5` header;
@@ -279,12 +280,16 @@ address in hex (stable across reboots).
 Examples:
 
 ```
+# Write requests (POST/PATCH/DELETE) sent without a browser `Origin` header
+# (curl, scripts, Home Assistant) must carry a valid `X-OTA-TOKEN`; browsers
+# are accepted only from this device's own page (CSRF protection).
 curl http://bulb.local/api/lights
 curl -X PATCH http://bulb.local/api/lights/a4c138d0e0b12c34 \
-     -H 'Content-Type: application/json' \
+     -H 'X-OTA-TOKEN: your-ota-secret' -H 'Content-Type: application/json' \
      -d '{"brightness":40,"kelvin":2700}'
 curl -X PATCH http://bulb.local/api/lights/a4c138d0e0b12c34 \
-     -H 'Content-Type: application/json' -d '{"rgb_hex":"#ff8800"}'
+     -H 'X-OTA-TOKEN: your-ota-secret' -H 'Content-Type: application/json' \
+     -d '{"rgb_hex":"#ff8800"}'
 ```
 
 Errors are always `{"error":"..."}` with a 4xx status.

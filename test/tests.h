@@ -22,3 +22,4 @@ void runEffectsTests();
 void runStatusLedTests();
 void runSerialConsoleTests();
 void runOtaUpdateTests();
+void runWebAuthTests();
