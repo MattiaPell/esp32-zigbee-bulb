@@ -48,20 +48,14 @@ follows [Semantic Versioning](https://semver.org/).
 - `GET /api/lights/{id}/debug` returned invalid JSON (stray quote).
 - Write requests without an `Origin` header (curl, scripts) were always
   rejected with 403; they are now accepted when `X-OTA-TOKEN` is valid.
-
-### Security
-
-- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
-
-### Fixed
-
 - `json_lite.h`: a string value that happens to equal the name of a later key
   (e.g. a bulb named `"power"`) no longer shadows the real key.
 
 ### Security
 
-- (unchanged) The REST API has no authentication: keep the controller on a
-  trusted LAN.
+- `X-OTA-TOKEN` is compared in constant time (`web_auth.h`, unit-tested).
+- Light control is open on the LAN unless `REQUIRE_TOKEN_FOR_WRITES` is
+  defined: keep the controller on a trusted network.
 
 ## [1.1.0] - 2026-09-10
 
