@@ -132,17 +132,23 @@ void appendSceneJson(size_t index, String &j) {
   bool first = true;
   while (start < (int)entry.length()) {
     const int bar = entry.indexOf('|', start);
-    const String item = bar < 0 ? entry.substring(start) : entry.substring(start, bar);
-    start = bar < 0 ? (int)entry.length() : bar + 1;
-    const int semi = item.indexOf(';');
-    if (semi <= 0) continue;
+    const int end = bar < 0 ? (int)entry.length() : bar;
+
+    const int semi = entry.indexOf(';', start);
+    if (semi <= start || semi >= end) {
+      start = end + 1;
+      continue;
+    }
+
     if (!first) j += ",";
     first = false;
     j += "{\"ieee\":\"";
-    j += item.substring(0, semi);
+    j += entry.substring(start, semi);
     j += "\",\"state\":\"";
-    j += item.substring(semi + 1);
+    j += entry.substring(semi + 1, end);
     j += "\"}";
+
+    start = end + 1;
   }
   j += "]}";
 }
