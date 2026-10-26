@@ -87,13 +87,17 @@ String mock_bulbIeeeHex_scenes(const Bulb *b) {
 }
 
 Bulb* mock_registryGet_scenes(size_t index) { return &mock_bulbs_scenes[index]; }
-Bulb* mock_registryFindByIeeeHex_scenes(const String &ieeeHex) {
+Bulb* mock_registryFindByIeeeHex_scenes(const char *ieeeHex, size_t length) {
+  String h(ieeeHex, length);
   for (size_t i = 0; i < mock_registry_count; ++i) {
-    if (mock_bulbIeeeHex_scenes(&mock_bulbs_scenes[i]).equalsIgnoreCase(ieeeHex)) {
+    if (mock_bulbIeeeHex_scenes(&mock_bulbs_scenes[i]).equalsIgnoreCase(h)) {
       return &mock_bulbs_scenes[i];
     }
   }
   return nullptr;
+}
+inline Bulb* mock_registryFindByIeeeHex_scenes(const String &ieeeHex) {
+  return mock_registryFindByIeeeHex_scenes(ieeeHex.c_str(), ieeeHex.length());
 }
 bool mock_bulbReady_scenes(const Bulb *b) { return b->online; }
 

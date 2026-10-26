@@ -171,8 +171,8 @@ static uint8_t hexCharToInt(char c) {
   return 0;
 }
 
-Bulb *registryFindByIeeeHex(const String &ieeeHex) {
-  if (ieeeHex.length() != 16) return nullptr;
+Bulb *registryFindByIeeeHex(const char *ieeeHex, size_t length) {
+  if (length != 16) return nullptr;
 
   esp_zb_ieee_addr_t target;
   for (int i = 0; i < 8; ++i) {
