@@ -52,7 +52,10 @@ void registryBegin();
 size_t registryCount();
 Bulb *registryGet(size_t index);            // nullptr if out of range
 Bulb *registryFindByIeee(const esp_zb_ieee_addr_t ieee);
-Bulb *registryFindByIeeeHex(const String &ieeeHex);  // API id lookup (MQTT)
+Bulb *registryFindByIeeeHex(const char *ieeeHex, size_t length);  // API id lookup (MQTT)
+inline Bulb *registryFindByIeeeHex(const String &ieeeHex) {
+  return registryFindByIeeeHex(ieeeHex.c_str(), ieeeHex.length());
+}
 
 // Add with an auto name ("Bulb N"). Returns the new bulb, nullptr if full.
 Bulb *registryAdd(const esp_zb_ieee_addr_t ieee);
