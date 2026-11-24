@@ -111,7 +111,7 @@ void loop() {
     otaTick();
     updateStatusLed();
     statusLedTick();
-    delay(2);
+    vTaskDelay(pdMS_TO_TICKS(2));
     return;
   }
 
@@ -133,5 +133,5 @@ void loop() {
   updateStatusLed();
   statusLedTick();
 
-  delay(2);
+  vTaskDelay(pdMS_TO_TICKS(2));
 }
