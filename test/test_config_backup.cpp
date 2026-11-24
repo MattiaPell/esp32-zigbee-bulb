@@ -51,7 +51,8 @@ void mock_registryRename_cfg(Bulb*, const char*) {}
 void mock_registryMarkDirty_cfg() {}
 void mock_registryFlush_cfg() {}
 Bulb* mock_registryAdd_cfg(esp_zb_ieee_addr_t) { return nullptr; }
-Bulb* mock_registryFindByIeeeHex_cfg(const String&) { return nullptr; }
+Bulb* mock_registryFindByIeeeHex_cfg(const char*, size_t) { return nullptr; }
+inline Bulb* mock_registryFindByIeeeHex_cfg(const String&) { return nullptr; }
 
 size_t mock_scenesCount_cfg() { return 0; }
 String mock_sceneNameAt_cfg(size_t) { return ""; }

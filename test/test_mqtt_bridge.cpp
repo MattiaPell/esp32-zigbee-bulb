@@ -50,7 +50,7 @@ WiFiClass_mqtt WiFi_mqtt_obj;
 String bulbIeeeHex(const Bulb*) { return "0011223344556677"; }
 
 #define registryFindByIeeeHex registryFindByIeeeHex_mqtt
-Bulb* registryFindByIeeeHex(const String&) { return nullptr; }
+Bulb* registryFindByIeeeHex(const char*, size_t) { return nullptr; }
 
 #define registryGet registryGet_mqtt
 Bulb* registryGet(size_t) { return nullptr; }

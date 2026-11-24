@@ -450,12 +450,15 @@ void applyToAll(const String &payload) {
 void handleMqttCommand(const String &topic, const String &payload) {
   const String prefix = String(MQTT_PREFIX) + "/";
   if (!topic.startsWith(prefix) || !topic.endsWith("/set")) return;
-  const String target = topic.substring(prefix.length(), topic.length() - 4);
-  if (target == "all") {
+
+  unsigned int targetLen = topic.length() - prefix.length() - 4;
+  const char *targetStart = topic.c_str() + prefix.length();
+
+  if (targetLen == 3 && targetStart[0] == 'a' && targetStart[1] == 'l' && targetStart[2] == 'l') {
     applyToAll(payload);
     return;
   }
-  Bulb *b = registryFindByIeeeHex(target);
+  Bulb *b = registryFindByIeeeHex(targetStart, targetLen);
   if (b != nullptr) applyPerBulb(b, payload);
 }
 
